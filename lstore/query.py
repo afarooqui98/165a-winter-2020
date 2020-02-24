@@ -35,14 +35,14 @@ class Query:
     """
 
     def insert(self, *columns):
-        schema_encoding = '0' * self.table.num_columns
+        base_rid = 0
         timestamp = process_time()
         timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
 
         indirection_index = 0
         key_index = self.table.key
         rid = self.table.base_RID
-        columns = [indirection_index, rid, timestamp, schema_encoding] + list(columns)
+        columns = [indirection_index, rid, timestamp, base_rid] + list(columns)
 
         self.table.__insert__(columns) #table insert
         self.index.add_index(rid, columns[lstore.config.Offset:])
@@ -67,16 +67,15 @@ class Query:
     """
 
     def update(self, key, *columns):
-        schema_encoding = '0' * self.table.num_columns
         timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-
         indirection_index = 0
         rid = self.table.tail_RID
+
         old_columns = self.select(key, self.table.key, [1] * self.table.num_columns)[0].columns #get every column and compare to the new one: cumulative update
         new_columns = list(columns)
-        columns = [indirection_index, rid, timestamp, schema_encoding] + compare_cols(old_columns, new_columns)
 
         old_rid = self.index.locate(key, self.table.key)[0]
+        columns = [indirection_index, rid, timestamp, old_rid] + compare_cols(old_columns, new_columns)
         self.table.__update__(columns, old_rid) #add record to tail pages
 
         old_indirection = self.table.__return_base_indirection__(old_rid) #base record, do not update index only insert
