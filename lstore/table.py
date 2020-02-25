@@ -72,6 +72,7 @@ class Table:
         self.tail_offset_counter = 0
 
     def __merge__(self):
+        print("Hey we need to merge")
         pass
 
     def __add_physical_base_range__(self):
@@ -166,21 +167,23 @@ class Table:
         return indirection_index
 
     def __traverse_tail__(self, page_index):
+        counter = 0
         tail_offset = self.disk.get_offset(self.name, 0, page_index) #tail pointer at the specified base page in disk
         prev_tail = page_index
         while tail_offset != 0: 
             prev_tail = tail_offset
             tail_offset = self.disk.get_offset(self.name, 0, prev_tail)
+            counter += 1
 
         tail_offset = prev_tail
-        return tail_offset
+        return tail_offset, counter
 
     def __update__(self, columns, base_rid):
         #print("self.base_offset_counter is " + str(self.base_offset_counter) + " self.tail_offset_counter is " + str(self.tail_offset_counter))
         base_offset, _ = self.page_directory[base_rid]
 
         current_tail = None
-        previous_offset = self.__traverse_tail__(base_offset)
+        previous_offset, num_traversed = self.__traverse_tail__(base_offset)
         page_offset = previous_offset
         if previous_offset == base_offset: #if there is no tail page for the base page
             #print("adding range for base page")
@@ -191,8 +194,10 @@ class Table:
         if not current_tail.has_capacity(): #if the latest tail page is full
             #print("adding new tail page to existing range")
             self.__add_physical_tail_range__(previous_offset)
-            page_offset = self.tail_offset_counter
-            #add the new range and update the tail offsets accordingly 
+            page_offset = self.tail_offset_counter #add the new range and update the tail offsets accordingly 
+            if num_traversed == lstore.config.TailMergeLimit: # maybe should be >= 
+                #its time to merge
+                self.__merge__() # needs to be called in a threaded way
 
         current_tail_range = self.buffer.fetch_range(self.name, page_offset)
         #print("tail range fetched successfully")

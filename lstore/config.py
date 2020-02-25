@@ -7,3 +7,4 @@ StartTailRID = ((2 ** 63) - 1)
 Offset = 4
 buffersize = 30
 DBName = ""
+TailMergeLimit = 1

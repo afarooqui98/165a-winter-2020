@@ -38,8 +38,7 @@ class Database():
                 for column_index in range(table.num_columns + lstore.config.Offset):
                     frame_num = self.buffer_pool.frame_map[page_index]
                     page_to_write = self.buffer_pool.page_map[frame_num][column_index]
-                    if page_to_write.dirty:
-                        table.disk.write(table.name, column_index, page_index, page_to_write)
+                    table.disk.write(table.name, column_index, page_index, page_to_write)
 
 
     """
