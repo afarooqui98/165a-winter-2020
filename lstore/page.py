@@ -10,6 +10,8 @@ class Page:
 		self.access_count = 0
 
 	def has_capacity(self):
+		print(lstore.config.PageEntries)
+		print(self.num_records)
 		return (lstore.config.PageEntries - self.num_records) > 0
 
 	#If return value is > -1, successful write and returns index written at. Else, need to allocate new page

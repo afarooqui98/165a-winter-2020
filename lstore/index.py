@@ -33,6 +33,7 @@ class Index:
         # BTree.search()
         # Locate certain values once we pass the column and the value
         if value not in self.index_dict[column]:
+            print(str(value) + " not found")
             return []
         else:
             return self.index_dict[column][value]
@@ -50,7 +51,7 @@ class Index:
             current_page_rid = current_range[1].read(slot_index)
             current_page_indirection = current_range[0].read(slot_index)
 
-            if current_page_rid <= self.table.base_RID: #if this is a base page it will be less than the table base_RID value
+            if current_page_rid <= self.table.base_RID and current_page_rid != 0: #if this is a base page it will be less than the table base_RID value
                 if current_page_indirection != 0: #want to find the latest entry values to store to index
                     page_index, slot_index = self.table.page_directory[current_page_indirection] #update these values to reflect a tail hop
                     current_range = self.table.buffer.fetch_range(self.table.name, page_index)
@@ -66,29 +67,34 @@ class Index:
 
         print(len(self.index_dict[0]))
 
-
     def add_index(self, RID, cols):
         for column_index in range(len(cols)):
             if column_index == self.table.key: # Check for duplicate primary 
                 if cols[column_index] in self.index_dict[column_index]:
-                    return -1
+                    if len(self.index_dict[column_index][cols[column_index]]) != 0:
+                        return -1
 
             if cols[column_index] not in self.index_dict[column_index]: #if there is no entry, create a list entry
                 self.index_dict[column_index][cols[column_index]] = [RID]
             else:
                 self.index_dict[column_index][cols[column_index]].append(RID) #add to the list entry
-
         return 0
 
-
+    def update_index(self, RID, cols): #drop the index and add the updated record
+        self.drop_index(cols[self.table.key]) 
+        self.add_index(RID, cols)
 
     """
     # optional: Drop index of specific column
     """
     # Delete given column_number
-    def drop_index(self, column_number):
-        del self.index[column_number]
-        pass
+    def drop_index(self, key):
+        rid = self.locate(key, self.table.key)[0]
+        for i in range(self.table.num_columns):
+            for key in self.index_dict[i].keys():
+                if rid in self.index_dict[i][key]:
+                    self.index_dict[i][key].remove(rid)
+        return
 
     # Function to add RIDS from a certain range
     def range(self, start, end, column):

@@ -36,7 +36,6 @@ class Database():
             #write pages to disk only if dirty
             for page_index in self.buffer_pool.frame_map.keys():
                 for column_index in range(table.num_columns + lstore.config.Offset):
-                    print(column_index)
                     frame_num = self.buffer_pool.frame_map[page_index]
                     page_to_write = self.buffer_pool.page_map[frame_num][column_index]
                     table.disk.write(table.name, column_index, page_index, page_to_write)

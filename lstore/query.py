@@ -26,9 +26,9 @@ class Query:
     # Read a record with specified RID
     """
 
-    def delete(self, key, col):
-        self.table.__delete__(self.index.locate(key, col))
-        del self.index.index_dict[col][key]
+    def delete(self, key):
+        self.table.__delete__(self.index.locate(key, self.table.key)[0])
+        self.index.drop_index(key)
 
     """
     # Insert a record with specified columns
@@ -75,13 +75,15 @@ class Query:
         new_columns = list(columns)
 
         old_rid = self.index.locate(key, self.table.key)[0]
-        columns = [indirection_index, rid, timestamp, old_rid] + compare_cols(old_columns, new_columns)
+        compared_cols = compare_cols(old_columns, new_columns)
+        columns = [indirection_index, rid, timestamp, old_rid] + compared_cols
         self.table.__update__(columns, old_rid) #add record to tail pages
 
         old_indirection = self.table.__return_base_indirection__(old_rid) #base record, do not update index only insert
 
         self.table.__update_indirection__(rid, old_indirection) #tail record gets base record's indirection index
         self.table.__update_indirection__(old_rid, rid) #base record's indirection column gets latest update RID
+        self.index.update_index(old_rid, compared_cols)
         self.table.tail_RID -= 1
 
     """
@@ -94,7 +96,7 @@ class Query:
         result = 0
         for key in range(start_range, end_range + 1):
             temp_record = (self.select(key, self.table.key, [1] * self.table.num_columns))
-            if temp_record == -1:
+            if temp_record == -1 or len(temp_record) == 0:
                 continue
             result += temp_record[0].columns[aggregate_column_index]
 
