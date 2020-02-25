@@ -54,7 +54,7 @@ class Index:
                 if current_page_indirection != 0: #want to find the latest entry values to store to index
                     page_index, slot_index = self.table.page_directory[current_page_indirection] #update these values to reflect a tail hop
                     current_range = self.table.buffer.fetch_range(self.table.name, page_index)
-                    current_page_rid = current_range[1].read(slot_index)
+                    #current_page_rid = current_range[1].read(slot_index)
 
                 for column_index in range(self.table.num_columns):
                     current_value = current_range[column_index + lstore.config.Offset].read(slot_index) #only retrieve the value columns

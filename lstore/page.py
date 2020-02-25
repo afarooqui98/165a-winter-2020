@@ -34,6 +34,7 @@ class Page:
 		return result
 
 	def inplace_update(self, index, value):
+		self.dirty = True
 		if isinstance(value, int):
 			valueInBytes = value.to_bytes(8, "big")
 		elif isinstance(value, str):

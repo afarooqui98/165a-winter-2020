@@ -80,8 +80,7 @@ class Bufferpool():
         curr_table = self.db.get_table(name)
         for column_index in range(lstore.config.Offset + curr_table.num_columns):
             page_to_write = self.page_map[self.frame_map[evict_page_slot]][column_index]
-            if page_to_write.dirty:
-                curr_table.disk.write(name, column_index, evict_page_slot, page_to_write)
+            curr_table.disk.write(name, column_index, evict_page_slot, page_to_write)
 
         evicted_key = self.frame_map[evict_page_slot] 
         del self.frame_map[evict_page_slot] #need to remove the key from the map to prevent an access from happening again
