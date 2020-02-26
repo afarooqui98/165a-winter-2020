@@ -8,11 +8,14 @@ import os
 import sys
 import pickle
 import copy
+import queue
 
 INDIRECTION_COLUMN = 0
 RID_COLUMN = 1
 TIMESTAMP_COLUMN = 2
 SCHEMA_ENCODING_COLUMN = 3
+
+valueQueue = queue.Queue()
 
 
 #only return if there is a page directory file specified, only happens after the db has been closed
@@ -77,8 +80,8 @@ class Table:
     #TODO: implement TPS calculation
     def __merge__(self, base_range_copy, tail_range_copies, consolidated_pages):
         for record_index in range(512): #for each base record
-            if base_range_copy[RID_COLUMN].read(record_index) == 0:
-                continue #deleted base record, skip over it
+            if base_range_copy[RID_COLUMN].read(record_index) == 0 or base_range_copy[INDIRECTION_COLUMN].read(record_index) == 0:
+                continue #deleted base record or no tail record, skip over it
             latest_update_rid = base_range_copy[INDIRECTION_COLUMN].read(record_index)
             _ , slot_index = self.page_directory[latest_update_rid] #find the latest update
 
@@ -87,31 +90,34 @@ class Table:
                 if tail_rid == latest_update_rid:
                     for column_index in range(lstore.config.Offset, lstore.config.Offset + self.num_columns):
                         tail_page_value = tail_range[column_index].read(slot_index)
-                        base_range_copy[column_index].inplace_update(slot_index, tail_page_value)
+                        base_range_copy[column_index].inplace_update(record_index, tail_page_value)         
 
-        consolidated_pages = base_range_copy
+        valueQueue.put(base_range_copy)
 
     def __prepare_merge__(self, base_offset):
         print("preparing merge")
         base_range_copy = copy.deepcopy(self.buffer.fetch_range(self.name, base_offset)) #create a separate copy of the base range to put in the bg thread
         tail_ranges = []
-        for tail_offset in reverse(self.merge_queue): #reverse the order of the merge queue 
+        for tail_offset in reversed(self.merge_queue): #reverse the order of the merge queue 
             tail_range = self.buffer.fetch_range(self.name, tail_offset) 
             tail_ranges.append(tail_range)
 
+        consolidated_pages = None
         x = threading.Thread(target=self.__merge__, args=(base_range_copy, tail_ranges, consolidated_pages)) #put merging in a bg thread
         x.start()
 
-        x.join() #block writing until the merge 
-
+        x.join() #block writing until the merge
+        consolidated_pages = valueQueue.get()
         old_pages = self.buffer.fetch_range(self.name, base_offset)
-        #get metadata 
-        consolidated_pages = old_pages[:lstore.config.offset] + consolidated_pages[lstore.config.offset:] #store the base metadata columns and the merged data columns
+        #get metadata
+        consolidated_pages = old_pages[:lstore.config.Offset] + consolidated_pages[lstore.config.Offset:] #store the base metadata columns and the merged data columns
         new_offset = self.disk.get_offset(self.name, 0, self.merge_queue[-1])
         for i in range(lstore.config.Offset + self.num_columns):
             self.disk.update_offset(self.name, i, base_offset, new_offset) #update the offset of the ranges
+
         self.merge_queue = []
-        self.buffer.page_map[frame_map[base_offset]] = consolidated_pages #update bufferpool
+        self.buffer.page_map[self.buffer.frame_map[base_offset]] = consolidated_pages #update bufferpool
+        print("merge done")
 
     def __add_physical_base_range__(self):
         if self.base_offset_counter < self.tail_offset_counter:
@@ -235,13 +241,10 @@ class Table:
             self.merge_queue.append(page_offset) #add page offset to the queue
             self.__add_physical_tail_range__(previous_offset)
             page_offset = self.tail_offset_counter #add the new range and update the tail offsets accordingly 
-
-            print("num_records " + str(self.buffer.fetch_range(self.name, base_offset)[0].num_records) + " num_traversed " + str(num_traversed) + " has capacity is " + str(self.buffer.fetch_range(self.name, base_offset)[0].has_capacity == False))
-            if (num_traversed == lstore.config.TailMergeLimit) and (self.buffer.fetch_range(self.name, base_offset)[0].has_capacity == False): # maybe should be >=, check to see if the base page is full
-                #its time to merge
-                print("check1")
+            
+            if (num_traversed == lstore.config.TailMergeLimit) and (self.buffer.fetch_range(self.name, base_offset)[0].has_capacity() == False): # maybe should be >=, check to see if the base page is full
                 self.__prepare_merge__(base_offset) # needs to be called in a threaded way, pass through the deep copy of the base range
-            print("check2")
+        
         current_tail_range = self.buffer.fetch_range(self.name, page_offset)
         #print("tail range fetched successfully")
         for column_index in range(self.num_columns + lstore.config.Offset):
