@@ -39,6 +39,7 @@ class Index:
             page_index = values[0]
             slot_index = values[1]
             current_range = self.table.buffer.fetch_range(self.table.name, page_index) #get the RID column
+            self.table.buffer.unpin_range(self.table.name, page_index)
             current_page_rid = current_range[1].read(slot_index)
             current_page_indirection = current_range[0].read(slot_index)
 
@@ -46,6 +47,7 @@ class Index:
                 if current_page_indirection != 0: #want to find the latest entry values to store to index
                     page_index, slot_index = self.table.page_directory[current_page_indirection] #update these values to reflect a tail hop
                     current_range = self.table.buffer.fetch_range(self.table.name, page_index)
+                    self.table.buffer.unpin_range(self.table.name, page_index)
                     #current_page_rid = current_range[1].read(slot_index)
 
                 for column_index in range(self.table.num_columns):

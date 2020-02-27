@@ -95,13 +95,14 @@ class Table:
                             tail_page_value = tail_range[column_index].read(record_index)
                             base_range_copy[column_index].inplace_update(base_record_index, tail_page_value)
 
-                            self.page_directory_lock = True
-                            self.page_directory.pop(tail_rid, None) 
-                            self.page_directory_lock = False                      
+                            # self.page_directory_lock = True
+                            # self.page_directory.pop(tail_rid, None) 
+                            # self.page_directory_lock = False                      
                 else:
-                    self.page_directory_lock = True
-                    self.page_directory.pop(tail_rid, None) #in any case, remove this rid from the page directory
-                    self.page_directory_lock = False       
+                    pass
+                    # self.page_directory_lock = True
+                    # self.page_directory.pop(tail_rid, None) #in any case, remove this rid from the page directory
+                    # self.page_directory_lock = False       
 
         tps_value = tail_range_copies[len(tail_range_copies) - 1][RID_COLUMN].read(lstore.config.PageEntries - 1) #last record in last page is the TPS
         return (base_range_copy, tps_value)
