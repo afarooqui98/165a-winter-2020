@@ -141,7 +141,7 @@ class Table:
         print(new_offset)
         for column_index in range(lstore.config.Offset + self.num_columns):
             consolidated_range[column_index].update_tps(tps_value) #update the tps in the consolidated pages before assignment
-            self.disk.update_offset(self.name, column_index, base_offset, 0) #update the offset of the ranges
+            self.disk.update_offset(self.name, column_index, base_offset, tail_offset) #update the offset of the ranges
 
         # for tail_range in tail_ranges:
         #     for column_index in range(lstore.config.Offset + self.num_columns):
@@ -184,9 +184,9 @@ class Table:
         new_rid = current_page.read(slot_index)
         column_list = []
         key_val = -1
-
+        #print("new_rid is " + str(new_rid))
+        #print("tps is " + str(current_page_tps))
         if new_rid != 0 and (current_page_tps == 0 or new_rid < current_page_tps):
-            # print("new rid is: " + str(new_rid))
             tail_index, tail_slot_index = self.page_directory[new_rid] #store values from tail record
             current_tail_range = self.buffer.fetch_range(self.name, tail_index)
             for column_index in range(lstore.config.Offset, self.num_columns + lstore.config.Offset):
@@ -199,7 +199,7 @@ class Table:
                     column_list.append(column_val)
             self.buffer.unpin_range(self.name, tail_index) #unpin at end of transaction
         else:
-            # print("reading from base")
+            #print("reading from base")
             current_base_range = self.buffer.fetch_range(self.name, page_index)
             for column_index in range(lstore.config.Offset, self.num_columns + lstore.config.Offset):
                 if column_index == self.key + lstore.config.Offset:
@@ -287,7 +287,7 @@ class Table:
             print("num_traversed is " + str(num_traversed) + " has capacity is " + str(self.buffer.fetch_range(self.name, base_offset)[0].has_capacity() == False))
             self.buffer.unpin_range(self.name, base_offset)
 
-            if (num_traversed == lstore.config.TailMergeLimit) and (self.buffer.fetch_range(self.name, base_offset)[0].has_capacity() == False): # maybe should be >=, check to see if the base page is full
+            if (num_traversed >= lstore.config.TailMergeLimit) and (self.buffer.fetch_range(self.name, base_offset)[0].has_capacity() == False): # maybe should be >=, check to see if the base page is full
                 self.buffer.unpin_range(self.name, base_offset)
                 self.merge_queue.put(base_offset) #add page offset to the queue
                 if len(threading.enumerate()) == 1: #TODO: check the name of the current thread, needs to make sure that merge isn't in the pool
