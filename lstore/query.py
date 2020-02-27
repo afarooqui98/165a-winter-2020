@@ -12,28 +12,19 @@ def compare_cols(old_columns, new_columns):
         return new_columns
 
 class Query:
-    """
     # Creates a Query object that can perform different queries on the specified table
-    """
-
     def __init__(self, table):
         self.table = table
         self.index = Index(self.table)
         pass
 
-    """
     # internal Method
     # Read a record with specified RID
-    """
-
     def delete(self, key):
         self.table.__delete__(self.index.locate(key, self.table.key)[0])
         self.index.drop_index(key)
 
-    """
     # Insert a record with specified columns
-    """
-
     def insert(self, *columns):
         base_rid = 0
         timestamp = process_time()
@@ -48,10 +39,7 @@ class Query:
         self.index.add_index(rid, columns[lstore.config.Offset:])
         self.table.base_RID += 1
 
-    """
     # Read a record with specified key
-    """
-
     def select(self, key, column, query_columns):
         rids = self.index.locate(key, column)
         if rids == -1:
@@ -62,10 +50,7 @@ class Query:
             result.append(self.table.__read__(rids[i], query_columns))
         return result
 
-    """
     # Update a record with specified key and columns
-    """
-
     def update(self, key, *columns):
         timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         indirection_index = 0
@@ -91,7 +76,6 @@ class Query:
     :param end_range: int           # End of the key range to aggregate
     :param aggregate_columns: int  # Index of desired column to aggregate
     """
-
     def sum(self, start_range, end_range, aggregate_column_index):
         result = 0
         for key in range(start_range, end_range + 1):

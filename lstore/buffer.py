@@ -14,13 +14,16 @@ class Bufferpool():
         self.page_map = {}  # frame id to page
         self.size = lstore.config.buffersize
         self.accesses = [0] * self.size
+        self.pins = [0] * self.size #TODO: for milestone 3, make pins an int
 
     def must_evict(self):
         return len(self.page_map) == self.size
 
+    #fetches the range and returns, while putting it in a frame index
     def fetch_range(self, name, page_slot): 
         if page_slot in self.frame_map: #if in memory, just return
             self.accesses[self.frame_map[page_slot]] += 1
+            self.pin_range(name, page_slot) #pin this page
             return self.page_map[self.frame_map[page_slot]]
         else:
             new_range = self.get_range(name, page_slot)
@@ -33,8 +36,28 @@ class Bufferpool():
                 self.page_map[self.frame_map[page_slot]] = new_range
 
         self.accesses[self.frame_map[page_slot]] += 1 #increase num accesses for this frame
+        self.pin_range(name, page_slot) #pin this page
         return self.page_map[self.frame_map[page_slot]]
 
+    #check to see if the range is pinned 
+    def is_pinned(self, name, page_slot):
+        frame_num = self.frame_map[page_slot]
+        return self.pins[frame_num] > 0
+
+    #TODO: for milestone 3, make pins an int
+    def pin_range(self, name, page_slot):
+        frame_num = self.frame_map[page_slot]
+        self.pins[frame_num] += 1
+
+    def get_pins(self, name, page_slot):
+        return self.pins[self.frame_map[page_slot]]
+
+    #TODO: for milestone 3, make pins an int
+    def unpin_range(self, name, page_slot):
+        frame_num = self.frame_map[page_slot]
+        self.pins[frame_num] -= 1
+
+    #get the specified page_index 
     def get_range(self, name, page_index):
         curr_table = self.db.get_table(name)
         new_range = []
@@ -71,8 +94,9 @@ class Bufferpool():
         for fk in self.frame_map.keys():
             frame_num = self.frame_map[fk]
             num_accesses = self.accesses[frame_num]
-            #print("framenum is " + str(self.frame_map[fk]) + " page offset is " + str(fk) + " num_accesses is " + str(num_accesses))
-            if num_accesses < count: 
+            num_pins = self.pins[frame_num]
+            #print("framenum is " + str(self.frame_map[fk]) + " page offset is " + str(fk) + " num_accesses is " + str(num_accesses) + " pin count is " + str(num_pins))
+            if num_accesses < count and num_pins == 0: 
                 count = num_accesses
                 evict_page_slot = fk
                 #print("evict page slot: " + str(evict_page_slot))

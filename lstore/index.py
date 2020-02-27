@@ -3,12 +3,6 @@ import lstore.config
 from collections import defaultdict
 from lstore.btree import BTreeNode, BPTree
 
-"""
-# optional: Indexes the specified column of the specified table to speed up select queries
-# This data structure is usually a B-Tree
-"""
-
-
 class Index:
 
     def __init__(self, table):
@@ -24,9 +18,7 @@ class Index:
         if len(table.page_directory) != 0:
             self.create_index()
 
-    """
     # returns the location of all records with the given value
-    """
     # Add another parameter, column, so we can specify the column we want to find
     def locate(self, value, column):
         # BTree = index_dict[column]
@@ -39,10 +31,9 @@ class Index:
             return self.index_dict[column][value]
         return -1
 
-    """
-    # optional: Create index on specific column
-    """
-    #If key not in our dict, we addend the RID to the column, else we create new index
+    
+    # Create index on specific column
+    # If key not in our dict, we addend the RID to the column, else we create new index
     def create_index(self):
         for RID, values in self.table.page_directory.items():
             page_index = values[0]
@@ -84,9 +75,8 @@ class Index:
         self.drop_index(cols[self.table.key]) 
         self.add_index(RID, cols)
 
-    """
-    # optional: Drop index of specific column
-    """
+
+    # Drop index of specific column
     # Delete given column_number
     def drop_index(self, key):
         rid = self.locate(key, self.table.key)[0]

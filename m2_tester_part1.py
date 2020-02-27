@@ -1,5 +1,6 @@
 from lstore.db import Database
 from lstore.query import Query
+import sys
 
 from random import choice, randint, sample, seed
 
@@ -46,6 +47,7 @@ for _ in range(10):
                     error = True
             if error:
                 print('update error on', original, 'and', updated_columns, ':', record.columns, ', correct:', records[key])
+                # sys.exit(3)
             else:
                 print('update on', original, 'and', updated_columns, ':', record.columns)
             updated_columns[i] = None
