@@ -31,7 +31,7 @@ class Index:
             return self.index_dict[column][value]
         return -1
 
-    
+
     # Create index on specific column
     # If key not in our dict, we addend the RID to the column, else we create new index
     def create_index(self):
@@ -58,11 +58,10 @@ class Index:
                     else:
                         self.index_dict[column_index][current_value].append(current_page_rid) #add to the list entry
 
-        print(len(self.index_dict[0]))
 
     def add_index(self, RID, cols):
         for column_index in range(len(cols)):
-            if column_index == self.table.key: # Check for duplicate primary 
+            if column_index == self.table.key: # Check for duplicate primary
                 if cols[column_index] in self.index_dict[column_index]:
                     if len(self.index_dict[column_index][cols[column_index]]) != 0:
                         return -1
@@ -74,7 +73,7 @@ class Index:
         return 0
 
     def update_index(self, RID, cols): #drop the index and add the updated record
-        self.drop_index(cols[self.table.key]) 
+        self.drop_index(cols[self.table.key])
         self.add_index(RID, cols)
 
 

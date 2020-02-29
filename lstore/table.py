@@ -83,7 +83,7 @@ class Table:
     def __merge__(self, base_range_copy, tail_range_copies):
         for tail_range in reversed(tail_range_copies): #for every range reversed
             for record_index in range(lstore.config.PageEntries - 1, 0, -1): #for each record backwards, starting at index 511 (PageEntries - 1)
-                
+
                 tail_rid = tail_range[RID_COLUMN].read(record_index)
                 base_rid_for_tail = tail_range[BASE_RID_COLUMN].read(record_index)
 
@@ -96,22 +96,21 @@ class Table:
                             base_range_copy[column_index].inplace_update(base_record_index, tail_page_value)
 
                             # self.page_directory_lock = True
-                            # self.page_directory.pop(tail_rid, None) 
-                            # self.page_directory_lock = False                      
+                            # self.page_directory.pop(tail_rid, None)
+                            # self.page_directory_lock = False
                 else:
                     pass
                     # self.page_directory_lock = True
                     # self.page_directory.pop(tail_rid, None) #in any case, remove this rid from the page directory
-                    # self.page_directory_lock = False       
+                    # self.page_directory_lock = False
 
         tps_value = tail_range_copies[len(tail_range_copies) - 1][RID_COLUMN].read(lstore.config.PageEntries - 1) #last record in last page is the TPS
         return (base_range_copy, tps_value)
 
     def __prepare_merge__(self, base_offset):
-        print("preparing merge")
         base_range_copy = copy.deepcopy(self.buffer.fetch_range(self.name, base_offset)) #create a separate copy of the base range to put in the bg thread
         next_offset = self.disk.get_offset(self.name, 0, base_offset)
-        self.buffer.unpin_range(self.name, base_offset) #update is finished, unpin 
+        self.buffer.unpin_range(self.name, base_offset) #update is finished, unpin
         tail_ranges = []
 
         counter = 0
@@ -129,7 +128,6 @@ class Table:
 
         if counter < lstore.config.TailMergeLimit:
             # not enough pages to merge
-            print("Not enough pages to merge")
             return
 
         consolidated_range, tps_value = self.__merge__(base_range_copy, tail_ranges) #initiate merge, return a consolidated range
@@ -139,7 +137,6 @@ class Table:
         consolidated_range = base_range[:lstore.config.Offset] + consolidated_range[lstore.config.Offset:] #store the base metadata columns and the merged data columns
         self.buffer.unpin_range(self.name, base_offset) #unpin base_range after consolidation
         new_offset = (tail_offset if tail_offset == 0 else previous_offset) #either get the last tail_page's offset to point the base page to, or the previous offset if there is no next tail page
-        print(new_offset)
         for column_index in range(lstore.config.Offset + self.num_columns):
             consolidated_range[column_index].update_tps(tps_value) #update the tps in the consolidated pages before assignment
             self.disk.update_offset(self.name, column_index, base_offset, tail_offset) #update the offset of the ranges
@@ -152,18 +149,17 @@ class Table:
             print("pin count on range is " + str(self.buffer.get_pins(self.name, base_offset)))
 
         self.buffer.page_map[self.buffer.frame_map[base_offset]] = consolidated_range #update bufferpool
-        print("merge done")
 
     def __add_physical_base_range__(self):
         if self.base_offset_counter < self.tail_offset_counter:
-            self.base_offset_counter = self.tail_offset_counter + lstore.config.FilePageLength 
+            self.base_offset_counter = self.tail_offset_counter + lstore.config.FilePageLength
         else:
             self.base_offset_counter += lstore.config.FilePageLength #increase offset after adding a range
         self.buffer.add_range(self.name, self.base_offset_counter)
 
     def __add_physical_tail_range__(self, previous_offset_counter):
         if self.tail_offset_counter < self.base_offset_counter:
-            self.tail_offset_counter = self.base_offset_counter + lstore.config.FilePageLength 
+            self.tail_offset_counter = self.base_offset_counter + lstore.config.FilePageLength
         else:
             self.tail_offset_counter += lstore.config.FilePageLength #increase offset after adding a range
         self.buffer.add_range(self.name, self.tail_offset_counter)
@@ -174,19 +170,16 @@ class Table:
 
     def __read__(self, RID, query_columns):
         # What the fick tail index and tails slots?
-        #print("RID here is " + str(RID))
         tail_index = tail_slot_index = -1
         page_index, slot_index = self.page_directory[RID]
 
         current_page = self.buffer.fetch_range(self.name, page_index)[INDIRECTION_COLUMN] #index into the physical location
-        self.buffer.unpin_range(self.name, page_index) 
+        self.buffer.unpin_range(self.name, page_index)
 
         current_page_tps = current_page.get_tps() #make sure the indirection column hasn't already been merged
         new_rid = current_page.read(slot_index)
         column_list = []
         key_val = -1
-        #print("new_rid is " + str(new_rid))
-        #print("tps is " + str(current_page_tps))
         if new_rid != 0 and (current_page_tps == 0 or new_rid < current_page_tps):
             tail_index, tail_slot_index = self.page_directory[new_rid] #store values from tail record
             current_tail_range = self.buffer.fetch_range(self.name, tail_index)
@@ -195,12 +188,11 @@ class Table:
                     #TODO TF is this shit, does it acctually give the key val
                     key_val = query_columns[column_index - lstore.config.Offset]
                 if query_columns[column_index - lstore.config.Offset] == 1:
-                    current_tail_page = current_tail_range[column_index] #get tail page from 
+                    current_tail_page = current_tail_range[column_index] #get tail page from
                     column_val = current_tail_page.read(tail_slot_index)
                     column_list.append(column_val)
             self.buffer.unpin_range(self.name, tail_index) #unpin at end of transaction
         else:
-            #print("reading from base")
             current_base_range = self.buffer.fetch_range(self.name, page_index)
             for column_index in range(lstore.config.Offset, self.num_columns + lstore.config.Offset):
                 if column_index == self.key + lstore.config.Offset:
@@ -209,7 +201,6 @@ class Table:
                 if query_columns[column_index - lstore.config.Offset] == 1:
                     current_base_page = current_base_range[column_index]
                     column_val = current_base_page.read(slot_index)
-                    #print("page index at " + str(page_index) + " slot index at " + str(slot_index) + " value is: " + str(column_val))
                     column_list.append(column_val)
             self.buffer.unpin_range(self.name, page_index) #unpin at end of transaction
 
@@ -257,7 +248,7 @@ class Table:
         counter = 0
         tail_offset = self.disk.get_offset(self.name, 0, page_index) #tail pointer at the specified base page in disk
         prev_tail = page_index
-        while tail_offset != 0: 
+        while tail_offset != 0:
             prev_tail = tail_offset
             tail_offset = self.disk.get_offset(self.name, 0, prev_tail)
             counter += 1
@@ -266,45 +257,33 @@ class Table:
         return tail_offset, counter
 
     def __update__(self, columns, base_rid):
-        #print("self.base_offset_counter is " + str(self.base_offset_counter) + " self.tail_offset_counter is " + str(self.tail_offset_counter))
         base_offset, _ = self.page_directory[base_rid]
-        #print("pin count on range is " + str(self.buffer.get_pins(self.name, base_offset)))
 
         current_tail = None
         previous_offset, num_traversed = self.__traverse_tail__(base_offset)
         page_offset = previous_offset
         if previous_offset == base_offset: #if there is no tail page for the base page
-            #print("adding range for base page")
             self.__add_physical_tail_range__(previous_offset)
             page_offset = self.tail_offset_counter
 
         current_tail = self.buffer.fetch_range(self.name, page_offset)[0]
         self.buffer.unpin_range(self.name, page_offset)  #just needed to read this once, unpin right after
         if not current_tail.has_capacity(): #if the latest tail page is full
-            #print("adding new tail page to existing range")
             self.__add_physical_tail_range__(previous_offset)
-            page_offset = self.tail_offset_counter #add the new range and update the tail offsets accordingly 
-            
-            print("num_traversed is " + str(num_traversed) + " has capacity is " + str(self.buffer.fetch_range(self.name, base_offset)[0].has_capacity() == False))
+            page_offset = self.tail_offset_counter #add the new range and update the tail offsets accordingly
+
             self.buffer.unpin_range(self.name, base_offset)
 
             if (num_traversed >= lstore.config.TailMergeLimit) and (self.buffer.fetch_range(self.name, base_offset)[0].has_capacity() == False): # maybe should be >=, check to see if the base page is full
                 self.buffer.unpin_range(self.name, base_offset)
                 self.merge_queue.put(base_offset) #add page offset to the queue
                 if len(threading.enumerate()) == 1: #TODO: check the name of the current thread, needs to make sure that merge isn't in the pool
-                    print("about to start merge")
                     thread = threading.Thread(name = "merge_thread", target = self.__prepare_merge__, args = [self.merge_queue.get()]) # needs to be called in a threaded way, pass through the deep copy of the base range
                     thread.start()
-        
+
         current_tail_range = self.buffer.fetch_range(self.name, page_offset)
-        #print("tail range fetched successfully")
         for column_index in range(self.num_columns + lstore.config.Offset):
-            # print(columns[column_index], end = " ")
             current_tail_page = current_tail_range[column_index]
             slot_index = current_tail_page.write(columns[column_index])
         self.page_directory[columns[RID_COLUMN]] = (page_offset, slot_index) #on successful write, store to page directory
-        self.buffer.unpin_range(self.name, page_offset) #update is finished, unpin 
-        # print("page offset is " + str(page_offset) + "slot index is " + str(slot_index))
-
-
-
+        self.buffer.unpin_range(self.name, page_offset) #update is finished, unpin
