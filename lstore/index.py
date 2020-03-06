@@ -3,6 +3,19 @@ import lstore.config
 from collections import defaultdict
 from lstore.btree import BTreeNode, BPTree
 
+class IndexEntry:
+
+    def __init__(self, rid):
+        self.rid = rid
+        self.outstanding_read = 0
+        self.outstanding_write = False
+
+    def __eq__(self, other):
+        return other and self.rid == other
+
+    def __ne__(self, other):
+        return not self.__eq__(other)
+
 class Index:
 
     def __init__(self, table):
@@ -28,7 +41,7 @@ class Index:
             print(str(value) + " not found")
             return []
         else:
-            return self.index_dict[column][value]
+            return self.index_dict[column][value] #return the rid value
         return -1
 
 
@@ -54,9 +67,9 @@ class Index:
                     current_value = current_range[column_index + lstore.config.Offset].read(slot_index) #only retrieve the value columns
 
                     if current_value not in self.index_dict[column_index]: #if there is no entry, create a list entry
-                        self.index_dict[column_index][current_value] = [current_page_rid]
+                        self.index_dict[column_index][current_value] = [IndexEntry(current_page_rid)]
                     else:
-                        self.index_dict[column_index][current_value].append(current_page_rid) #add to the list entry
+                        self.index_dict[column_index][current_value].append(IndexEntry(current_page_rid)) #add to the list entry
 
 
     def add_index(self, RID, cols):
@@ -67,9 +80,9 @@ class Index:
                         return -1
 
             if cols[column_index] not in self.index_dict[column_index]: #if there is no entry, create a list entry
-                self.index_dict[column_index][cols[column_index]] = [RID]
+                self.index_dict[column_index][cols[column_index]] = [IndexEntry(RID)]
             else:
-                self.index_dict[column_index][cols[column_index]].append(RID) #add to the list entry
+                self.index_dict[column_index][cols[column_index]].append(IndexEntry(RID)) #add to the list entry
         return 0
 
     def update_index(self, RID, cols): #drop the index and add the updated record
@@ -80,7 +93,7 @@ class Index:
     # Drop index of specific column
     # Delete given column_number
     def drop_index(self, key):
-        rid = self.locate(key, self.table.key)[0]
+        rid = self.locate(key, self.table.key)[0].rid
         for i in range(self.table.num_columns):
             for key in self.index_dict[i].keys():
                 if rid in self.index_dict[i][key]:
@@ -91,4 +104,4 @@ class Index:
     def range(self, start, end, column):
         RIDS = []
         for i in range(start, end + 1):
-            RID += self.locate(i, column)
+            RID += self.locate(i, column).rid
