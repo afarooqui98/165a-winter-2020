@@ -72,6 +72,8 @@ class Table:
 
         self.base_RID = lstore.config.StartBaseRID
         self.tail_RID = lstore.config.StartTailRID
+        self.base_RID_lock = 0
+        self.tail_RID_lock = 0
         self.base_offset_counter = 0
         self.tail_offset_counter = 0
 

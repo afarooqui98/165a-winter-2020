@@ -3,6 +3,7 @@ from lstore.index import Index
 from time import process_time
 import struct
 import lstore.config
+import threading
 from datetime import datetime
 
 #if any new_columns are None type, give it the old_columns values
@@ -51,10 +52,13 @@ class Query:
         entries = self.index.locate(key, column)
         rids = []
         for entry in entries:
-            rids.append(entry.rid)
+            #2PL: acquire shared locks
+            if entry.rid == -1 or (entry.outstanding_write != threading.get_ident() and entry.outstanding_write != 0):
+                return False #return false to the transaction class if rid not found or abort because of locks
+            else:
+                self.index.acquire_read(key)
 
-        if rids == -1:
-            return -1
+            rids.append(entry.rid)
 
         result = []
         for i in range(len(rids)):
@@ -72,7 +76,15 @@ class Query:
         old_columns = self.select(key, self.table.key, [1] * self.table.num_columns)[0].columns #get every column and compare to the new one: cumulative update
         new_columns = list(columns)
 
-        old_rid = self.index.locate(key, self.table.key)[0].rid
+        old_entry = self.index.locate(key, self.table.key)[0]
+        old_rid = old_entry.rid
+
+        #2PL: acquire exlcusive locks
+        if old_rid == -1 or (old_entry.outstanding_write != threading.get_ident() and entry.outstanding_write != 0):
+            return False #return false to the transaction class if rid not found or abort 
+        else:
+            self.index.acquire_write(key)
+
         compared_cols = compare_cols(old_columns, new_columns)
         columns = [indirection_index, rid, timestamp, old_rid] + compared_cols
         self.table.__update__(columns, old_rid) #add record to tail pages

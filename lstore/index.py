@@ -2,13 +2,14 @@ from lstore.table import Table
 import lstore.config
 from collections import defaultdict
 from lstore.btree import BTreeNode, BPTree
+import threading
 
 class IndexEntry:
 
     def __init__(self, rid):
         self.rid = rid
         self.outstanding_read = 0
-        self.outstanding_write = False
+        self.outstanding_write = 0
 
     def __eq__(self, other):
         return other and self.rid == other
@@ -43,6 +44,26 @@ class Index:
         else:
             return self.index_dict[column][value] #return the rid value
         return -1
+
+    def acquire_read(self, value):
+        entries = self.locate(value, self.table.key)
+        for entry in entries:
+            entry.outstanding_read += 1
+
+    def acquire_write(self, value): #set the write lock to the 
+        entries = self.locate(value, self.table.key)
+        for entry in entries:
+            entry.outstanding_write = threading.get_ident()
+
+    def release_read(self, value):
+        entries = self.locate(value, self.table.key)
+        for entry in entries:
+            entry.outstanding_read -= 1
+
+    def release_write(self, value):
+        entries = self.locate(value, self.table.key)
+        for entry in entries:
+            entry.outstanding_write = 0
 
 
     # Create index on specific column
@@ -88,7 +109,6 @@ class Index:
     def update_index(self, RID, cols): #drop the index and add the updated record
         self.drop_index(cols[self.table.key])
         self.add_index(RID, cols)
-
 
     # Drop index of specific column
     # Delete given column_number
