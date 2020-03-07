@@ -1,4 +1,4 @@
-from template.table import Table, Record
+from template.table import Table, Recordt
 from template.index import Index
 import threading
 
@@ -44,4 +44,5 @@ class Transaction:
         return True
 
     def release_locks(self, key):
+        self.
         pass

@@ -5,6 +5,7 @@ import struct
 import lstore.config
 import threading
 from datetime import datetime
+import threading
 
 #if any new_columns are None type, give it the old_columns values
 def compare_cols(old_columns, new_columns):
@@ -42,7 +43,11 @@ class Query:
 
         self.table.__insert__(columns) #table insert
         self.index.add_index(rid, columns[lstore.config.Offset:])
+
+        lock = Threading.lock() #lock the RID increment to prevent race conditions
+        lock.acquire()
         self.table.base_RID += 1
+        lock.release()
 
     # Read a record with specified key
     # Returns a list of Record objects upon success
@@ -94,7 +99,11 @@ class Query:
         self.table.__update_indirection__(rid, old_indirection) #tail record gets base record's indirection index
         self.table.__update_indirection__(old_rid, rid) #base record's indirection column gets latest update RID
         self.index.update_index(old_rid, compared_cols)
+
+        lock = Threading.lock() #lock the RID decrement to prevent race conditions
+        lock.acquire()
         self.table.tail_RID -= 1
+        lock.release()
 
     """
     :param start_range: int         # Start of the key range to aggregate
