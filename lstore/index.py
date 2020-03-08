@@ -8,7 +8,7 @@ class IndexEntry:
 
     def __init__(self, rid):
         self.rid = rid
-        self.outstanding_read = 0
+        self.outstanding_read = []
         self.outstanding_write = 0
 
     def __eq__(self, other):
@@ -46,24 +46,38 @@ class Index:
         return -1
 
     def acquire_read(self, value):
+        lock = threading.Lock()
+        lock.acquire()
         entries = self.locate(value, self.table.key)
         for entry in entries:
-            entry.outstanding_read += 1
+            if threading.get_ident() not in entry.outstanding_read:
+                entry.outstanding_read += [threading.get_ident()]
+        lock.release()
 
-    def acquire_write(self, value): #set the write lock to the 
+    def acquire_write(self, value): #set the write lock to the
+        lock = threading.Lock()
+        lock.acquire()
         entries = self.locate(value, self.table.key)
         for entry in entries:
             entry.outstanding_write = threading.get_ident()
+        lock.release()
 
-    def release_read(self, value):
+    def release_read(self, value): #release read lock only if it is in the entry list
+        lock = threading.Lock()
+        lock.acquire()
         entries = self.locate(value, self.table.key)
         for entry in entries:
-            entry.outstanding_read -= 1
+            if threading.get_ident() in entry.outstanding_read:
+                entry.outstanding_read.remove(threading.get_ident())
+        lock.release()
 
     def release_write(self, value):
+        lock = threading.Lock()
+        lock.acquire()
         entries = self.locate(value, self.table.key)
         for entry in entries:
             entry.outstanding_write = 0
+        lock.release()
 
 
     # Create index on specific column

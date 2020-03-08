@@ -5,6 +5,7 @@ import lstore.config
 import lstore.table
 import math
 import os
+import threading
 
 #page_map: contains a list of base or tail ranges
 class Bufferpool():
@@ -26,7 +27,7 @@ class Bufferpool():
             self.pin_range(name, page_slot) #pin this page
             return self.page_map[self.frame_map[page_slot]]
         else:
-            lock = Threading.lock() #keep eviction and loading atomic, acquire thread safe lock to ensure this
+            lock = threading.Lock() #keep eviction and loading atomic, acquire thread safe lock to ensure this
             lock.acquire()
             new_range = self.get_range(name, page_slot)
             if self.must_evict(): #must evict a page and store a new one from disk
@@ -78,7 +79,7 @@ class Bufferpool():
             new_page = Page()
             new_range.append(new_page)
 
-        lock = Threading.lock() #loading to the buffer pool should be atomic
+        lock = threading.Lock() #loading to the buffer pool should be atomic
         lock.acquire()
         if self.must_evict(): #need to evict a page to add the new range from memory
             frame_num = self.evict(name)

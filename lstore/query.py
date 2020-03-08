@@ -27,6 +27,7 @@ class Query:
     def delete(self, key):
         self.table.__delete__(self.index.locate(key, self.table.key)[0].rid)
         self.index.drop_index(key)
+        return True, self.index
 
     # Insert a record with specified columns
     # Return True upon succesful insertion
@@ -44,10 +45,13 @@ class Query:
         self.table.__insert__(columns) #table insert
         self.index.add_index(rid, columns[lstore.config.Offset:])
 
-        lock = Threading.lock() #lock the RID increment to prevent race conditions
+        lock = threading.Lock() #lock the RID increment to prevent race conditions
         lock.acquire()
         self.table.base_RID += 1
         lock.release()
+
+        # Insert is not being tested so might not need this statement
+        return True, self.index
 
     # Read a record with specified key
     # Returns a list of Record objects upon success
@@ -58,8 +62,12 @@ class Query:
         rids = []
         for entry in entries:
             #2PL: acquire shared locks
-            if entry.rid == -1 or (entry.outstanding_write != threading.get_ident() and entry.outstanding_write != 0):
-                return False #return false to the transaction class if rid not found or abort because of locks
+            if entry.rid == -1:
+                print("select returned false because of locate error")
+                return False, self.index #return false to the transaction class if rid not found or abort because of locks
+            if entry.outstanding_write != 0:
+                print("select returned false because of locking error: tid is " + str(threading.get_ident()) + "outstanding_write is" + str(entry.outstanding_write))
+                return False, self.index
             else:
                 self.index.acquire_read(key)
 
@@ -68,7 +76,7 @@ class Query:
         result = []
         for i in range(len(rids)):
             result.append(self.table.__read__(rids[i], query_columns))
-        return result
+        return result, self.index
 
     # Update a record with specified key and columns
     # Returns True if update is succesful
@@ -78,15 +86,15 @@ class Query:
         indirection_index = 0
         rid = self.table.tail_RID
 
-        old_columns = self.select(key, self.table.key, [1] * self.table.num_columns)[0].columns #get every column and compare to the new one: cumulative update
+        old_columns = self.select(key, self.table.key, [1] * self.table.num_columns)[0][0].columns #get every column and compare to the new one: cumulative update
         new_columns = list(columns)
 
         old_entry = self.index.locate(key, self.table.key)[0]
         old_rid = old_entry.rid
 
         #2PL: acquire exlcusive locks
-        if old_rid == -1 or (old_entry.outstanding_write != threading.get_ident() and entry.outstanding_write != 0):
-            return False #return false to the transaction class if rid not found or abort 
+        if old_rid == -1 or (old_entry.outstanding_write != threading.get_ident() and old_entry.outstanding_write != 0):
+            return False, self.index #return false to the transaction class if rid not found or abort 
         else:
             self.index.acquire_write(key)
 
@@ -100,10 +108,12 @@ class Query:
         self.table.__update_indirection__(old_rid, rid) #base record's indirection column gets latest update RID
         self.index.update_index(old_rid, compared_cols)
 
-        lock = Threading.lock() #lock the RID decrement to prevent race conditions
+        lock = threading.Lock() #lock the RID decrement to prevent race conditions
         lock.acquire()
         self.table.tail_RID -= 1
         lock.release()
+
+        return True, self.index
 
     """
     :param start_range: int         # Start of the key range to aggregate
@@ -115,12 +125,12 @@ class Query:
     def sum(self, start_range, end_range, aggregate_column_index):
         result = 0
         for key in range(start_range, end_range + 1):
-            temp_record = (self.select(key, self.table.key, [1] * self.table.num_columns))
+            temp_record = (self.select(key, self.table.key, [1] * self.table.num_columns)[0])
             if temp_record == -1 or len(temp_record) == 0:
                 continue
             result += temp_record[0].columns[aggregate_column_index]
 
-        return result
+        return result, self.index
 
 
     """
@@ -132,8 +142,8 @@ class Query:
     # Returns False if no record matches key or if target record is locked by 2PL.
     """
     def increment(self, key, column):
-        r = self.select(key, self.table.key, [1] * self.table.num_columns)[0].rid
-        if r is not False:
+        r, _ = self.select(key, self.table.key, [1] * self.table.num_columns)
+        if r[0].rid is not False:
             updated_columns = [None] * self.table.num_columns
             updated_columns[column] = r[column] + 1
             u = self.update(key, *updated_columns)

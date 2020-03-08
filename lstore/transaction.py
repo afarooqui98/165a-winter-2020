@@ -1,5 +1,5 @@
-from template.table import Table, Recordt
-from template.index import Index
+from lstore.table import Table, Record
+from lstore.index import Index
 import threading
 
 class Transaction:
@@ -9,7 +9,7 @@ class Transaction:
     """
     def __init__(self):
         self.queries = []
-        self.uncommittedQueries = []
+        self.uncommittedQueries = [] #tuples of the key value and the index structure pointer
         pass
 
     """
@@ -24,25 +24,29 @@ class Transaction:
 
     # If you choose to implement this differently this method must still return True if transaction commits or False on abort
     def run(self):
+        print("in run function")
         for query, args in self.queries:
-            self.uncommittedQueries.append(args[0])
-            result = query(*args)
-            # If the query has failed the transaction should abort
-            if result == False:
+            print("query about to run")
+            result, index = query(*args)
+            self.uncommittedQueries.append((args[0], index))
+            if result == False: # If the query has failed the transaction should abort
+                print("aborted")
+                self.uncommittedQueries.pop() #no need to "undo" the aborted transaction
                 return self.abort()
+        print("committed")
         return self.commit()
 
-    def abort(self):
+    def abort(self, index):
         #TODO: do roll-back and any other necessary operations
         return False
 
-    def commit(self):
+    def commit(self, index):
         # TODO: commit to database
         while len(self.uncommittedQueries) != 0:
-            key = self.uncommittedQueries.pop()
-            self.release_locks(key)
+            key, index = self.uncommittedQueries.pop()
+            self.release_locks(key, index)
         return True
 
-    def release_locks(self, key):
-        self.
+    def release_locks(self, key, index):
+        index.release_locks()
         pass

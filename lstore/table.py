@@ -150,7 +150,7 @@ class Table:
         while self.buffer.is_pinned(self.name, base_offset):
             print("pin count on range is " + str(self.buffer.get_pins(self.name, base_offset)))
 
-        self.buffer.page_map[self.buffer.frame_map[base_offset]] = consolidated_range #update bufferpool
+        self.buffer.page_map[self.buffer.frame_map[base_offset]] = consolidated_range #update buffer_pool
 
     def __add_physical_base_range__(self):
         if self.base_offset_counter < self.tail_offset_counter:
