@@ -39,7 +39,7 @@ class Index:
         # BTree.search()
         # Locate certain values once we pass the column and the value
         if value not in self.index_dict[column]:
-            print(str(value) + " not found")
+            print(str(value) + " not found, thread id is: " + str(threading.get_ident()))
             return []
         else:
             return self.index_dict[column][value] #return the rid value
@@ -50,7 +50,7 @@ class Index:
         lock.acquire()
         entries = self.locate(value, self.table.key)
         for entry in entries:
-            if threading.get_ident() not in entry.outstanding_read:
+            if threading.get_ident() != entry.outstanding_read:
                 entry.outstanding_read += [threading.get_ident()]
         lock.release()
 
@@ -67,16 +67,17 @@ class Index:
         lock.acquire()
         entries = self.locate(value, self.table.key)
         for entry in entries:
-            if threading.get_ident() in entry.outstanding_read:
+            if threading.get_ident() == entry.outstanding_read:
                 entry.outstanding_read.remove(threading.get_ident())
         lock.release()
 
-    def release_write(self, value):
+    def release_write(self, value): #lazy remove
         lock = threading.Lock()
         lock.acquire()
         entries = self.locate(value, self.table.key)
         for entry in entries:
-            entry.outstanding_write = 0
+            if threading.get_ident() == entry.outstanding_write:
+                entry.outstanding_write = 0
         lock.release()
 
 

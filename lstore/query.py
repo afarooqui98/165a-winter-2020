@@ -61,14 +61,16 @@ class Query:
         entries = self.index.locate(key, column)
         rids = []
         for entry in entries:
+            print("outstanding_write is: " + str(entry.outstanding_write))
             #2PL: acquire shared locks
-            if entry.rid == -1:
-                print("select returned false because of locate error")
+            if len(entries) == 0:
+                print("select returned false because it couldn't locate the key value")
                 return False, self.index #return false to the transaction class if rid not found or abort because of locks
-            if entry.outstanding_write != 0:
+            if entry.outstanding_write != 0 and threading.get_ident() != entry.outstanding_write:
                 print("select returned false because of locking error: tid is " + str(threading.get_ident()) + "outstanding_write is" + str(entry.outstanding_write))
                 return False, self.index
             else:
+                print("acquiring read lock")
                 self.index.acquire_read(key)
 
             rids.append(entry.rid)
@@ -96,6 +98,7 @@ class Query:
         if old_rid == -1 or (old_entry.outstanding_write != threading.get_ident() and old_entry.outstanding_write != 0):
             return False, self.index #return false to the transaction class if rid not found or abort 
         else:
+            print("acquiring write lock")
             self.index.acquire_write(key)
 
         compared_cols = compare_cols(old_columns, new_columns)
@@ -145,7 +148,7 @@ class Query:
         r, _ = self.select(key, self.table.key, [1] * self.table.num_columns)
         if r[0].rid is not False:
             updated_columns = [None] * self.table.num_columns
-            updated_columns[column] = r[column] + 1
-            u = self.update(key, *updated_columns)
-            return u
-        return False
+            updated_columns[column] = r[0].columns[column] + 1
+            u , _ = self.update(key, *updated_columns)
+            return u , self.index
+        return False, self.index

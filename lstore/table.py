@@ -82,8 +82,9 @@ class Table:
             print("waiting for page_directory to be unlocked by thread")
 
     #TODO: implement TPS calculation
-    def __merge__(self, base_range_copy, tail_range_copies):
-        for tail_range in reversed(tail_range_copies): #for every range reversed
+    def __merge__(self, base_range_copy, tail_range_offsets):
+        for tail_range_offset in reversed(tail_range_offsets): #for every range reversed
+            tail_range = self.buffer.fetch_range(self.name, tail_range_offset)
             for record_index in range(lstore.config.PageEntries - 1, 0, -1): #for each record backwards, starting at index 511 (PageEntries - 1)
 
                 tail_rid = tail_range[RID_COLUMN].read(record_index)
@@ -96,17 +97,13 @@ class Table:
                     for column_index in range(lstore.config.Offset, lstore.config.Offset + self.num_columns): #for each column
                             tail_page_value = tail_range[column_index].read(record_index)
                             base_range_copy[column_index].inplace_update(base_record_index, tail_page_value)
+            self.buffer.unpin_range(self.name, tail_range_offset)
 
-                            # self.page_directory_lock = True
-                            # self.page_directory.pop(tail_rid, None)
-                            # self.page_directory_lock = False
-                else:
-                    pass
-                    # self.page_directory_lock = True
-                    # self.page_directory.pop(tail_rid, None) #in any case, remove this rid from the page directory
-                    # self.page_directory_lock = False
+        last_tail_range_offset = tail_range_offsets[len(tail_range_offsets) - 1] #last offset 
+        last_tail_range = self.buffer.fetch_range(self.name, last_tail_range_offset)
+        tps_value = last_tail_range[RID_COLUMN].read(lstore.config.PageEntries - 1) #last record in last page is the TPS
+        self.buffer.unpin_range(self.name, last_tail_range_offset)
 
-        tps_value = tail_range_copies[len(tail_range_copies) - 1][RID_COLUMN].read(lstore.config.PageEntries - 1) #last record in last page is the TPS
         return (base_range_copy, tps_value)
 
     def __prepare_merge__(self, base_offset):
@@ -120,16 +117,17 @@ class Table:
         tail_offset = next_offset
 
         while counter != lstore.config.TailMergeLimit and tail_offset != 0:
-            current_range = self.buffer.fetch_range(self.name, tail_offset)
-            self.buffer.unpin_range(self.name, tail_offset) #since using for merge, we should pin it
+            # current_range = self.buffer.fetch_range(self.name, tail_offset)
+            # self.buffer.unpin_range(self.name, tail_offset) #since using for merge, we should pin it
 
-            tail_ranges.append(current_range)
+            tail_ranges.append(tail_offset)
             previous_offset = tail_offset
             tail_offset = self.disk.get_offset(self.name, 0, previous_offset)
             counter += 1
 
         if counter < lstore.config.TailMergeLimit:
             # not enough pages to merge
+            print("somehow counter is les than the tail merge limit, traversal error")
             return
 
         consolidated_range, tps_value = self.__merge__(base_range_copy, tail_ranges) #initiate merge, return a consolidated range
@@ -153,21 +151,30 @@ class Table:
         self.buffer.page_map[self.buffer.frame_map[base_offset]] = consolidated_range #update buffer_pool
 
     def __add_physical_base_range__(self):
+        lock = threading.Lock() #keep this function thread safe
+        lock.acquire()
         if self.base_offset_counter < self.tail_offset_counter:
             self.base_offset_counter = self.tail_offset_counter + lstore.config.FilePageLength
         else:
             self.base_offset_counter += lstore.config.FilePageLength #increase offset after adding a range
+        lock.release()
         self.buffer.add_range(self.name, self.base_offset_counter)
 
     def __add_physical_tail_range__(self, previous_offset_counter):
+        lock = threading.Lock() #keep this function thread safe
+        lock.acquire()
         if self.tail_offset_counter < self.base_offset_counter:
             self.tail_offset_counter = self.base_offset_counter + lstore.config.FilePageLength
         else:
             self.tail_offset_counter += lstore.config.FilePageLength #increase offset after adding a range
+        lock.release()
         self.buffer.add_range(self.name, self.tail_offset_counter)
 
         for column_index in range(lstore.config.Offset + self.num_columns): #update all the offsets
+            lock = threading.Lock() #lock the update offset for disk
+            lock.acquire()
             self.disk.update_offset(self.name, column_index, previous_offset_counter, self.tail_offset_counter) #update offset value i
+            lock.release()
 
 
     def __read__(self, RID, query_columns):

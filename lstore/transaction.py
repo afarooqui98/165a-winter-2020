@@ -28,25 +28,28 @@ class Transaction:
         for query, args in self.queries:
             print("query about to run")
             result, index = query(*args)
-            self.uncommittedQueries.append((args[0], index))
+            self.uncommittedQueries.append((query, args[0], index))
             if result == False: # If the query has failed the transaction should abort
                 print("aborted")
                 self.uncommittedQueries.pop() #no need to "undo" the aborted transaction
-                return self.abort()
+                return self.abort(index)
         print("committed")
-        return self.commit()
+        return self.commit(index)
 
     def abort(self, index):
         #TODO: do roll-back and any other necessary operations
+        for query in self.uncommittedQueries:
+            print(query[0].__name__)
         return False
 
     def commit(self, index):
         # TODO: commit to database
         while len(self.uncommittedQueries) != 0:
-            key, index = self.uncommittedQueries.pop()
-            self.release_locks(key, index)
+            query, key, index = self.uncommittedQueries.pop()
+            self.release_lock(key, index)
         return True
 
-    def release_locks(self, key, index):
-        index.release_locks()
-        pass
+    def release_lock(self, key, index):
+        #lazily remove read or write lock, fucntions will only release if the lock exists for the key
+        index.release_read(key)
+        index.release_write(key)
