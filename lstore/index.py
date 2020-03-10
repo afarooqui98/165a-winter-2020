@@ -50,7 +50,7 @@ class Index:
         lock.acquire()
         entries = self.locate(value, self.table.key)
         for entry in entries:
-            if threading.get_ident() != entry.outstanding_read:
+            if threading.get_ident() not in entry.outstanding_read:
                 entry.outstanding_read += [threading.get_ident()]
         lock.release()
 
@@ -67,7 +67,7 @@ class Index:
         lock.acquire()
         entries = self.locate(value, self.table.key)
         for entry in entries:
-            if threading.get_ident() == entry.outstanding_read:
+            if threading.get_ident() in entry.outstanding_read:
                 entry.outstanding_read.remove(threading.get_ident())
         lock.release()
 
