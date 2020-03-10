@@ -1,5 +1,5 @@
 from lstore.table import Table, Record
-from lstore.index import Index
+from lstore.index import Index, IndexEntry
 from time import process_time
 import struct
 import lstore.config
@@ -43,7 +43,7 @@ class Query:
         columns = [indirection_index, rid, timestamp, base_rid] + list(columns)
 
         self.table.__insert__(columns) #table insert
-        self.index.add_index(rid, columns[lstore.config.Offset:])
+        self.index.add_index(IndexEntry(rid), columns[lstore.config.Offset:])
 
         lock = threading.Lock() #lock the RID increment to prevent race conditions
         lock.acquire()
@@ -66,11 +66,12 @@ class Query:
             if len(entries) == 0:
                 print("select returned false because it couldn't locate the key value")
                 return False, self.index #return false to the transaction class if rid not found or abort because of locks
+                # T F - thread has write lock, # F T - write lock is zero so can get read lock, T T - write lock held by someon else
             if entry.outstanding_write != 0 and threading.get_ident() != entry.outstanding_write:
                 print("select returned false because of locking error: tid is " + str(threading.get_ident()) + "outstanding_write is" + str(entry.outstanding_write))
                 return False, self.index
             else:
-                print("acquiring read lock")
+
                 self.index.acquire_read(key)
 
             rids.append(entry.rid)
@@ -96,10 +97,12 @@ class Query:
 
         #2PL: acquire exlcusive locks
         if old_rid == -1 or (old_entry.outstanding_write != threading.get_ident() and old_entry.outstanding_write != 0):
-            return False, self.index #return false to the transaction class if rid not found or abort 
+            print("Failed write lock" +  str(threading.get_ident()))
+            return False, self.index #return false to the transaction class if rid not found or abort
         else:
             print("acquiring write lock")
             self.index.acquire_write(key)
+            print(old_entry.outstanding_write)
 
         compared_cols = compare_cols(old_columns, new_columns)
         columns = [indirection_index, rid, timestamp, old_rid] + compared_cols
@@ -109,7 +112,10 @@ class Query:
 
         self.table.__update_indirection__(rid, old_indirection) #tail record gets base record's indirection index
         self.table.__update_indirection__(old_rid, rid) #base record's indirection column gets latest update RID
-        self.index.update_index(old_rid, compared_cols)
+        print(key)
+        self.index.update_index(old_entry, compared_cols)
+        print(key)
+
 
         lock = threading.Lock() #lock the RID decrement to prevent race conditions
         lock.acquire()

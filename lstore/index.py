@@ -50,7 +50,7 @@ class Index:
         lock.acquire()
         entries = self.locate(value, self.table.key)
         for entry in entries:
-            if threading.get_ident() != entry.outstanding_read:
+            if threading.get_ident() not in entry.outstanding_read:
                 entry.outstanding_read += [threading.get_ident()]
         lock.release()
 
@@ -67,7 +67,7 @@ class Index:
         lock.acquire()
         entries = self.locate(value, self.table.key)
         for entry in entries:
-            if threading.get_ident() == entry.outstanding_read:
+            if threading.get_ident() in entry.outstanding_read:
                 entry.outstanding_read.remove(threading.get_ident())
         lock.release()
 
@@ -108,7 +108,8 @@ class Index:
                         self.index_dict[column_index][current_value].append(IndexEntry(current_page_rid)) #add to the list entry
 
 
-    def add_index(self, RID, cols):
+    def add_index(self, RID_entry, cols):
+
         for column_index in range(len(cols)):
             if column_index == self.table.key: # Check for duplicate primary
                 if cols[column_index] in self.index_dict[column_index]:
@@ -116,19 +117,20 @@ class Index:
                         return -1
 
             if cols[column_index] not in self.index_dict[column_index]: #if there is no entry, create a list entry
-                self.index_dict[column_index][cols[column_index]] = [IndexEntry(RID)]
+                self.index_dict[column_index][cols[column_index]] = [RID_entry]
             else:
-                self.index_dict[column_index][cols[column_index]].append(IndexEntry(RID)) #add to the list entry
+                self.index_dict[column_index][cols[column_index]].append(RID_entry) #add to the list entry
         return 0
 
-    def update_index(self, RID, cols): #drop the index and add the updated record
+    def update_index(self, RID_entry, cols): #drop the index and add the updated record
         self.drop_index(cols[self.table.key])
-        self.add_index(RID, cols)
+        self.add_index(RID_entry, cols)
 
     # Drop index of specific column
     # Delete given column_number
     def drop_index(self, key):
-        rid = self.locate(key, self.table.key)[0].rid
+        print("drop_index")
+        rid = self.locate(key, self.table.key)[0]
         for i in range(self.table.num_columns):
             for key in self.index_dict[i].keys():
                 if rid in self.index_dict[i][key]:
