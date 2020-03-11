@@ -1,6 +1,7 @@
 from lstore.table import Table, Record
 from lstore.index import Index
 import threading
+import sys
 
 class Transaction:
 
@@ -26,30 +27,34 @@ class Transaction:
     def run(self):
         print("in run function")
         for query, args in self.queries:
-            print("query about to run")
-            result, index = query(*args)
-            self.uncommittedQueries.append((query, args[0], index))
+            print("query " + str(query.__name__) + " about to run")
+            result, table, rid = query(*args)
+            self.uncommittedQueries.append((query, rid, table))
             if result == False: # If the query has failed the transaction should abort
-                print("aborted")
+                print("aborted " + str(threading.get_ident()))
                 self.uncommittedQueries.pop() #no need to "undo" the aborted transaction
-                return self.abort(index)
-        print("committed")
-        return self.commit(index)
+                return self.abort(table)
+        print("committed "+ str(threading.get_ident()))
+        return self.commit(table)
 
-    def abort(self, index):
+    def abort(self, table):
         #TODO: do roll-back and any other necessary operations
-        for query in self.uncommittedQueries:
-            print(query[0].__name__)
+        for query in reversed(self.uncommittedQueries):
+            fn_name = query[0].__name__
+            if fn_name == 'update' or fn_name == 'increment':
+                print("found an update")
+                table = query[2]
+                rid = query[1]
+                table.__undo_update__(rid)
+            else:
+                print("didn't find an update, val is " + fn_name)
+
+        table.release_locks()
         return False
 
-    def commit(self, index):
+    def commit(self, table):
         # TODO: commit to database
         while len(self.uncommittedQueries) != 0:
             query, key, index = self.uncommittedQueries.pop()
-            self.release_lock(key, index)
+        table.release_locks()
         return True
-
-    def release_lock(self, key, index):
-        #lazily remove read or write lock, fucntions will only release if the lock exists for the key
-        index.release_read(key)
-        index.release_write(key)

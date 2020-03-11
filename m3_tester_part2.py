@@ -16,7 +16,7 @@ num_threads = 4
 seed(8739878934)
 
 # Generate random records
-for i in range(0, 1000):
+for i in range(0, 500):
     key = 92106429 + i
     keys.append(key)
     records[key] = [key, 0, 0, 0, 0]
@@ -31,8 +31,8 @@ for i in range(num_threads):
 
 # generates 10k random transactions
 # each transaction will increment the first column of a record 5 times
-for i in range(100):
-    k = randint(0, 200 - 1)
+for i in range(50):
+    k = randint(0, 100 - 1)
     transaction = Transaction()
     for j in range(5):
         key = keys[k * 5 + j]
@@ -58,9 +58,12 @@ num_committed_transactions = sum(t.result for t in transaction_workers)
 print(num_committed_transactions, 'transaction committed.')
 
 query = Query(grades_table)
+print("post thread completion size is: " + str(len(query.index.index_dict[0])))
 s = query.sum(keys[0], keys[-1], 1)[0]
 
 if s != num_committed_transactions * 5:
     print('Expected sum:', num_committed_transactions * 5, ', actual:', s, '. Failed.')
 else:
     print('Pass.')
+
+print("final index size is: " + str(len(query.index.index_dict[0])))

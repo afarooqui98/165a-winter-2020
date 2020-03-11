@@ -67,7 +67,8 @@ class Table:
         self.buffer = buffer_pool
         self.disk = None
         self.page_directory = {}
-        self.page_directory_lock = False
+        self.read_lock_manager = {}
+        self.write_lock_manager = {}
         self.merge_queue = queue.Queue()
 
         self.base_RID = lstore.config.StartBaseRID
@@ -77,9 +78,67 @@ class Table:
         self.base_offset_counter = 0
         self.tail_offset_counter = 0
 
-    def page_directory_wait():
-        while self.page_directory_lock == True:
-            print("waiting for page_directory to be unlocked by thread")
+    def acquire_read(self, rid):
+        lock = threading.Lock() #keep this function thread safe
+        lock.acquire()
+        if rid in self.write_lock_manager: 
+            if threading.get_ident() == self.write_lock_manager[rid]:
+                if self.read_lock_manager[rid] == None:
+                    print("acquiring first new read lock on rid " + str(rid))
+                    self.read_lock_manager[rid] = [threading.get_ident()]
+                elif rid not in self.read_lock_manager[rid]: #only append if not in read lock list for record
+                    self.read_lock_manager[rid].append(threading.get_ident())
+                else:
+                    print("read lock already exists")
+                    lock.release()
+                    return True
+            else:
+                print("acquiring read lock on value with a non-native exclusive lock")
+                lock.release()
+                return False #rid is in the outstanding writes, being used by another thread
+        else:
+            self.read_lock_manager[rid] = [threading.get_ident()] #no write lock on record, can read
+
+        lock.release()
+        return True
+
+    def acquire_write(self, rid):
+        lock = threading.Lock() #keep this function thread safe
+        lock.acquire()
+        if rid in self.write_lock_manager:
+            print("rid " + str(rid) + " exists in the lock manager on thread " + str(threading.get_ident()))
+            if threading.get_ident() == self.write_lock_manager[rid]:
+                lock.release()
+                return True
+            else:
+                lock.release()
+                return False
+        else:
+            print("no write lock for rid " + str(rid) + " in the write lock manager, creating new in thread " + str(threading.get_ident()))
+            self.write_lock_manager[rid] = threading.get_ident() #no current write locks on record
+            lock.release()
+            return True
+
+    def release_locks(self):
+        thread_lock = threading.Lock() #keep this function thread safe
+        thread_lock.acquire()
+
+        write_locks_to_delete = []
+        read_locks_to_delete = []
+        for rid, locks in self.read_lock_manager.items():
+            if threading.get_ident() in locks:
+                read_locks_to_delete.append(rid)
+
+        for rid, lock in self.write_lock_manager.items():
+            if threading.get_ident() == lock:
+                write_locks_to_delete.append(rid)
+
+        for rid in read_locks_to_delete:
+            self.read_lock_manager[rid].remove(threading.get_ident())
+        for rid in write_locks_to_delete:
+            del self.write_lock_manager[rid]
+
+        thread_lock.release()
 
     #TODO: implement TPS calculation
     def __merge__(self, base_range_copy, tail_range_offsets):
@@ -89,6 +148,9 @@ class Table:
 
                 tail_rid = tail_range[RID_COLUMN].read(record_index)
                 base_rid_for_tail = tail_range[BASE_RID_COLUMN].read(record_index)
+                if tail_rid == 0: #if the tail record has been invalidated by an aborted transaction
+                    print("deleted tail record found, skipping")
+                    continue
 
                 _ , base_record_index = self.page_directory[base_rid_for_tail] #retrieve record index
                 base_indirection = base_range_copy[INDIRECTION_COLUMN].read(base_record_index) #get indirection column for comparison
@@ -296,3 +358,28 @@ class Table:
             slot_index = current_tail_page.write(columns[column_index])
         self.page_directory[columns[RID_COLUMN]] = (page_offset, slot_index) #on successful write, store to page directory
         self.buffer.unpin_range(self.name, page_offset) #update is finished, unpin
+
+    def __undo_update__(self, base_rid):
+        print("undo update")
+        base_offset, slot_index = self.page_directory[base_rid]
+        base_range = self.buffer.fetch_range(self.name, base_offset)
+        tail_rid = base_range[INDIRECTION_COLUMN].read(slot_index)
+        self.buffer.unpin_range(self.name, base_offset)
+
+        tail_offset, tail_slot_index = self.page_directory[tail_rid]
+        tail_range = self.buffer.fetch_range(self.name, tail_offset)
+
+        tail_rid_col = tail_range[RID_COLUMN]
+        tail_indirection_col = tail_range[INDIRECTION_COLUMN]
+
+        tail_rid_col.inplace_update(tail_slot_index, 0) #reset the rid column TODO: make sure merge checks the RID and continues if 0
+        next_latest_rid = tail_indirection_col.read(tail_slot_index)
+        self.buffer.unpin_range(tail_range, tail_offset)
+        print("current tail is " + str(tail_rid) + " next latest tail_rid is " + str(next_latest_rid))
+        self.__update_indirection__(base_rid, next_latest_rid)
+
+        # lock = threading.Lock()
+        # lock.acquire()
+        # del self.page_directory[tail_rid]
+        # lock.release()
+

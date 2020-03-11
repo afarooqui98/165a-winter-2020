@@ -1,5 +1,5 @@
 from lstore.table import Table, Record
-from lstore.index import Index, IndexEntry
+from lstore.index import Index
 from time import process_time
 import struct
 import lstore.config
@@ -25,9 +25,9 @@ class Query:
     # Returns True upon succesful deletion
     # Return False if record doesn't exist or is locked due to 2PL
     def delete(self, key):
-        self.table.__delete__(self.index.locate(key, self.table.key)[0].rid)
+        self.table.__delete__(self.index.locate(key, self.table.key)[0])
         self.index.drop_index(key)
-        return True, self.index
+        return True, self.table
 
     # Insert a record with specified columns
     # Return True upon succesful insertion
@@ -43,7 +43,7 @@ class Query:
         columns = [indirection_index, rid, timestamp, base_rid] + list(columns)
 
         self.table.__insert__(columns) #table insert
-        self.index.add_index(IndexEntry(rid), columns[lstore.config.Offset:])
+        self.index.add_index(rid, columns[lstore.config.Offset:])
 
         lock = threading.Lock() #lock the RID increment to prevent race conditions
         lock.acquire()
@@ -51,7 +51,7 @@ class Query:
         lock.release()
 
         # Insert is not being tested so might not need this statement
-        return True, self.index
+        return True, self.table
 
     # Read a record with specified key
     # Returns a list of Record objects upon success
@@ -60,26 +60,24 @@ class Query:
     def select(self, key, column, query_columns):
         entries = self.index.locate(key, column)
         rids = []
-        for entry in entries:
-            print("outstanding_write is: " + str(entry.outstanding_write))
+        for rid in entries:
             #2PL: acquire shared locks
             if len(entries) == 0:
                 print("select returned false because it couldn't locate the key value")
-                return False, self.index #return false to the transaction class if rid not found or abort because of locks
+                return False, self.table, rid #return false to the transaction class if rid not found or abort because of locks
                 # T F - thread has write lock, # F T - write lock is zero so can get read lock, T T - write lock held by someon else
-            if entry.outstanding_write != 0 and threading.get_ident() != entry.outstanding_write:
-                print("select returned false because of locking error: tid is " + str(threading.get_ident()) + "outstanding_write is" + str(entry.outstanding_write))
-                return False, self.index
+            if self.table.acquire_read(rid) == False:
+                print("select returned false because of locking error: tid is " + str(threading.get_ident()) + "outstanding_write rid is" + str(rid))
+                return False, self.table, rid
             else:
+                print("read has been acquired")
 
-                self.index.acquire_read(key)
-
-            rids.append(entry.rid)
+            rids.append(rid)
 
         result = []
         for i in range(len(rids)):
             result.append(self.table.__read__(rids[i], query_columns))
-        return result, self.index
+        return result, self.table, None #TODO: inspect this later, might be a faulty way of returning the last value
 
     # Update a record with specified key and columns
     # Returns True if update is succesful
@@ -92,17 +90,12 @@ class Query:
         old_columns = self.select(key, self.table.key, [1] * self.table.num_columns)[0][0].columns #get every column and compare to the new one: cumulative update
         new_columns = list(columns)
 
-        old_entry = self.index.locate(key, self.table.key)[0]
-        old_rid = old_entry.rid
+        old_rid = self.index.locate(key, self.table.key)[0] #get the IndexEntry of the old key val
 
         #2PL: acquire exlcusive locks
-        if old_rid == -1 or (old_entry.outstanding_write != threading.get_ident() and old_entry.outstanding_write != 0):
-            print("Failed write lock" +  str(threading.get_ident()))
-            return False, self.index #return false to the transaction class if rid not found or abort
-        else:
-            print("acquiring write lock")
-            self.index.acquire_write(key)
-            print(old_entry.outstanding_write)
+        if self.table.acquire_write(rid) == False or self.table.acquire_write(old_rid) == False:
+            print("Failed write lock on thread " +  str(threading.get_ident()))
+            return False, self.table, old_rid #return false to the transaction class if rid not found or abort
 
         compared_cols = compare_cols(old_columns, new_columns)
         columns = [indirection_index, rid, timestamp, old_rid] + compared_cols
@@ -113,8 +106,10 @@ class Query:
         self.table.__update_indirection__(rid, old_indirection) #tail record gets base record's indirection index
         self.table.__update_indirection__(old_rid, rid) #base record's indirection column gets latest update RID
         print(key)
-        self.index.update_index(old_entry, compared_cols)
+        self.index.update_index(old_rid, compared_cols)
         print(key)
+
+        print("size of index is : " + str(len(self.index.index_dict[0])))
 
 
         lock = threading.Lock() #lock the RID decrement to prevent race conditions
@@ -122,7 +117,7 @@ class Query:
         self.table.tail_RID -= 1
         lock.release()
 
-        return True, self.index
+        return True, self.table, old_rid
 
     """
     :param start_range: int         # Start of the key range to aggregate
@@ -135,11 +130,13 @@ class Query:
         result = 0
         for key in range(start_range, end_range + 1):
             temp_record = (self.select(key, self.table.key, [1] * self.table.num_columns)[0])
+            if temp_record == False:
+                return False, self.table
             if temp_record == -1 or len(temp_record) == 0:
                 continue
             result += temp_record[0].columns[aggregate_column_index]
 
-        return result, self.index
+        return result, self.table
 
 
     """
@@ -151,10 +148,10 @@ class Query:
     # Returns False if no record matches key or if target record is locked by 2PL.
     """
     def increment(self, key, column):
-        r, _ = self.select(key, self.table.key, [1] * self.table.num_columns)
+        r, _, _ = self.select(key, self.table.key, [1] * self.table.num_columns)
         if r[0].rid is not False:
             updated_columns = [None] * self.table.num_columns
             updated_columns[column] = r[0].columns[column] + 1
-            u , _ = self.update(key, *updated_columns)
-            return u , self.index
-        return False, self.index
+            u, table, rid  = self.update(key, *updated_columns)
+            return u, table, rid
+        return False, self.table, None #TODO: check this!!!!!!
