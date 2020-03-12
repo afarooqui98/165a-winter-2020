@@ -29,10 +29,10 @@ class Transaction:
             result, table, rid = query(*args)
             self.uncommittedQueries.append((query, rid, table))
             if result == False: # If the query has failed the transaction should abort
-                print("aborted " + str(threading.get_ident()))
+                # print("aborted " + str(threading.get_ident()))
                 self.uncommittedQueries.pop() #no need to "undo" the aborted transaction
                 return self.abort(table)
-        print("committed "+ str(threading.get_ident()))
+        # print("committed "+ str(threading.get_ident()))
         return self.commit(table)
 
     def abort(self, table):
@@ -47,7 +47,8 @@ class Transaction:
                 table.__undo_update__(rid)
                 lock.release()
             else:
-                print("didn't find an update, val is " + fn_name)
+                pass
+                # print("didn't find an update, val is " + fn_name)
         table.release_locks()
         return False
 

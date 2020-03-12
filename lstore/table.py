@@ -83,23 +83,23 @@ class Table:
         if rid in self.write_lock_manager: 
             if threading.get_ident() == self.write_lock_manager[rid]:
                 if self.read_lock_manager[rid] == None:
-                    print("acquiring first new read lock on rid " + str(rid))
+                    # print("acquiring first new read lock on rid " + str(rid))
                     self.read_lock_manager[rid] = [threading.get_ident()]
                 elif threading.get_ident() not in self.read_lock_manager[rid]: #only append if not in read lock list for record
-                    print("appending read lock because not in list")
+                    # print("appending read lock because not in list")
                     self.read_lock_manager[rid].append(threading.get_ident())
                 else:
-                    print("read lock already exists")
+                    # print("read lock already exists")
                     return True
             else:
-                print("acquiring read lock on value with a non-native exclusive lock")
+                # print("acquiring read lock on value with a non-native exclusive lock")
                 return False #rid is in the outstanding writes, being used by another thread
         elif rid in self.read_lock_manager:
             if threading.get_ident() in self.read_lock_manager[rid]:
-                print("read lock already exists")
+                # print("read lock already exists")
                 return True
         else:
-            print("New read lock on thread " + str(threading.get_ident()) + " for rid " + str(rid))
+            # print("New read lock on thread " + str(threading.get_ident()) + " for rid " + str(rid))
             self.read_lock_manager[rid] = [threading.get_ident()] #no write lock on record, can read
             return True
 
@@ -107,17 +107,17 @@ class Table:
         for thread in threading.enumerate():
             if rid in self.read_lock_manager: #key exists in read lock manager
                 if thread.ident in self.read_lock_manager[rid] and thread.ident != threading.get_ident(): #check if outstanding read exists
-                    print("outstanding read exists on this record from a different txn")
+                    # print("outstanding read exists on this record from a different txn")
                     return False
 
         if rid in self.write_lock_manager:
-            print("rid " + str(rid) + " exists in the lock manager on thread " + str(threading.get_ident()))
+            # print("rid " + str(rid) + " exists in the lock manager on thread " + str(threading.get_ident()))
             if threading.get_ident() == self.write_lock_manager[rid]:
                 return True
             else:
                 return False
         else:
-            print("no write lock for rid " + str(rid) + " in the write lock manager, creating new in thread " + str(threading.get_ident()))
+            # print("no write lock for rid " + str(rid) + " in the write lock manager, creating new in thread " + str(threading.get_ident()))
             self.write_lock_manager[rid] = threading.get_ident() #no current write locks on record
             return True
 
@@ -176,9 +176,6 @@ class Table:
         tail_offset = next_offset
 
         while counter != lstore.config.TailMergeLimit and tail_offset != 0:
-            # current_range = self.buffer.fetch_range(self.name, tail_offset)
-            # self.buffer.unpin_range(self.name, tail_offset) #since using for merge, we should pin it
-
             tail_ranges.append(tail_offset)
             previous_offset = tail_offset
             tail_offset = self.disk.get_offset(self.name, 0, previous_offset)
@@ -209,14 +206,14 @@ class Table:
 
         self.buffer.page_map[self.buffer.frame_map[base_offset]] = consolidated_range #update buffer_pool
 
-    def __add_physical_base_range__(self):
+    def __add_physical_base_range__(self): #calling function is thread safe
         if self.base_offset_counter < self.tail_offset_counter:
             self.base_offset_counter = self.tail_offset_counter + lstore.config.FilePageLength
         else:
             self.base_offset_counter += lstore.config.FilePageLength #increase offset after adding a range
         self.buffer.add_range(self.name, self.base_offset_counter)
 
-    def __add_physical_tail_range__(self, previous_offset_counter):
+    def __add_physical_tail_range__(self, previous_offset_counter): #calling function is thread safe
         if self.tail_offset_counter < self.base_offset_counter:
             self.tail_offset_counter = self.base_offset_counter + lstore.config.FilePageLength
         else:
@@ -228,11 +225,14 @@ class Table:
 
 
     def __read__(self, RID, query_columns):
+        lock = threading.RLock()
         # What the fick tail index and tails slots?
         tail_index = tail_slot_index = -1
         page_index, slot_index = self.page_directory[RID]
 
+        lock.acquire()
         current_page = self.buffer.fetch_range(self.name, page_index)[INDIRECTION_COLUMN] #index into the physical location
+        lock.release()
         self.buffer.unpin_range(self.name, page_index)
 
         current_page_tps = current_page.get_tps() #make sure the indirection column hasn't already been merged
@@ -241,7 +241,11 @@ class Table:
         key_val = -1
         if new_rid != 0 and (current_page_tps == 0 or new_rid < current_page_tps):
             tail_index, tail_slot_index = self.page_directory[new_rid] #store values from tail record
+
+            lock.acquire()
             current_tail_range = self.buffer.fetch_range(self.name, tail_index)
+            lock.release()
+
             for column_index in range(lstore.config.Offset, self.num_columns + lstore.config.Offset):
                 if column_index == self.key + lstore.config.Offset:
                     #TODO TF is this shit, does it acctually give the key val
@@ -252,7 +256,10 @@ class Table:
                     column_list.append(column_val)
             self.buffer.unpin_range(self.name, tail_index) #unpin at end of transaction
         else:
+            lock.acquire()
             current_base_range = self.buffer.fetch_range(self.name, page_index)
+            lock.release()
+
             for column_index in range(lstore.config.Offset, self.num_columns + lstore.config.Offset):
                 if column_index == self.key + lstore.config.Offset:
                     key_val = query_columns[column_index - lstore.config.Offset] #subtract offset for the param columns
@@ -268,14 +275,22 @@ class Table:
         return Record(RID, key_val, column_list) #return proper record, or -1 on key_val not found
 
     def __insert__(self, columns):
+        lock = threading.RLock()
         #returning any page in range will give proper size
+        lock.acquire()
         current_range = self.buffer.fetch_range(self.name, self.base_offset_counter)[0]
+        lock.release()
+
         self.buffer.unpin_range(self.name, self.base_offset_counter) #unpin after getting value
         if not current_range.has_capacity(): #if latest slot index is -1, need to add another range
             self.__add_physical_base_range__()
 
         page_index = self.base_offset_counter
+
+        lock.acquire()
         current_base_range = self.buffer.fetch_range(self.name, page_index)
+        lock.release()
+
         for column_index in range(self.num_columns + lstore.config.Offset):
             current_base_page = current_base_range[column_index]
             slot_index = current_base_page.write(columns[column_index])
@@ -284,21 +299,36 @@ class Table:
 
     #in place update of the indirection entry.
     def __update_indirection__(self, old_RID, new_RID):
+        lock = threading.RLock()
         page_index, slot_index = self.page_directory[old_RID]
+
+        lock.acquire()
         current_page = self.buffer.fetch_range(self.name, page_index)[INDIRECTION_COLUMN]
+        lock.release()
+
         current_page.inplace_update(slot_index, new_RID)
         self.buffer.unpin_range(self.name, page_index) #unpin after inplace update
 
     # Set base page entry RID to 0 to invalidate it
     def __delete__ (self, RID):
+        lock = threading.RLock()
         page_index, slot_index = self.page_directory[RID]
+
+        lock.acquire()
         current_page = self.buffer.fetch_range(self.name, page_index)[RID_COLUMN]
+        lock.release()
+
         current_page.inplace_update(slot_index, 0)
         self.buffer.unpin_range(self.name, page_index) #unpin after inplace update
 
     def __return_base_indirection__(self, RID):
+        lock = threading.RLock()
         page_index, slot_index = self.page_directory[RID]
+
+        lock.acquire()
         current_page = self.buffer.fetch_range(self.name, page_index)[INDIRECTION_COLUMN]
+        lock.release()
+
         indirection_index = current_page.read(slot_index)
         self.buffer.unpin_range(self.name, page_index) #unpin after reading indirection
         return indirection_index
@@ -328,7 +358,10 @@ class Table:
             page_offset = self.tail_offset_counter
             lock.release()
 
+        lock.acquire()
         current_tail = self.buffer.fetch_range(self.name, page_offset)[0]
+        lock.release()
+
         self.buffer.unpin_range(self.name, page_offset)  #just needed to read this once, unpin right after
         if not current_tail.has_capacity(): #if the latest tail page is full
             lock.acquire()
@@ -338,15 +371,25 @@ class Table:
 
             self.buffer.unpin_range(self.name, base_offset)
 
-            if (num_traversed >= lstore.config.TailMergeLimit) and (self.buffer.fetch_range(self.name, base_offset)[0].has_capacity() == False): # maybe should be >=, check to see if the base page is full
-                print("merge")
+            lock.acquire()
+            base_range = self.buffer.fetch_range(self.name, base_offset)
+            lock.release()
+
+            if (num_traversed >= lstore.config.TailMergeLimit) and (base_range[0].has_capacity() == False): # maybe should be >=, check to see if the base page is full
+                print("ready to merge")
+                lock.acquire()
+                merge_thread = (threading.get_ident() if merge_thread == -1 else merge_thread)
+                lock.release()
                 self.buffer.unpin_range(self.name, base_offset)
                 self.merge_queue.put(base_offset) #add page offset to the queue
                 if len(threading.enumerate()) == 1: #TODO: check the name of the current thread, needs to make sure that merge isn't in the pool
                     thread = threading.Thread(name = "merge_thread", target = self.__prepare_merge__, args = [self.merge_queue.get()]) # needs to be called in a threaded way, pass through the deep copy of the base range
                     thread.start()
 
+        lock.acquire()
         current_tail_range = self.buffer.fetch_range(self.name, page_offset)
+        lock.release()
+
         for column_index in range(self.num_columns + lstore.config.Offset):
             current_tail_page = current_tail_range[column_index]
             slot_index = current_tail_page.write(columns[column_index])
@@ -354,7 +397,6 @@ class Table:
         self.buffer.unpin_range(self.name, page_offset) #update is finished, unpin
 
     def __undo_update__(self, base_rid):
-        print("undo update")
         base_offset, slot_index = self.page_directory[base_rid]
         base_range = self.buffer.fetch_range(self.name, base_offset)
         tail_rid = base_range[INDIRECTION_COLUMN].read(slot_index)
@@ -369,7 +411,7 @@ class Table:
         tail_rid_col.inplace_update(tail_slot_index, 0) #reset the rid column TODO: make sure merge checks the RID and continues if 0
         next_latest_rid = tail_indirection_col.read(tail_slot_index)
         self.buffer.unpin_range(tail_range, tail_offset)
-        print("current tail is " + str(tail_rid) + " next latest tail_rid is " + str(next_latest_rid))
+        # print("current tail is " + str(tail_rid) + " next latest tail_rid is " + str(next_latest_rid))
         self.__update_indirection__(base_rid, next_latest_rid)
 
         # lock = threading.Lock()

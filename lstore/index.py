@@ -89,7 +89,7 @@ class Index:
     # Drop index of specific column
     # Delete given column_number
     def drop_index(self, key):
-        print("drop_index")
+        # print("drop_index")
         rid = self.locate(key, self.table.key)[0]
         for i in range(self.table.num_columns):
             for key in self.index_dict[i].keys():

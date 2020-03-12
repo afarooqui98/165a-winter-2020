@@ -36,6 +36,7 @@ class Bufferpool():
                 self.frame_map[page_slot] = len(self.page_map)
                 self.page_map[self.frame_map[page_slot]] = new_range
 
+
         self.accesses[self.frame_map[page_slot]] += 1 #increase num accesses for this frame
         self.pin_range(name, page_slot) #pin this page
         return self.page_map[self.frame_map[page_slot]]

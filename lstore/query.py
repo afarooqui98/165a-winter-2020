@@ -25,9 +25,10 @@ class Query:
     # Returns True upon succesful deletion
     # Return False if record doesn't exist or is locked due to 2PL
     def delete(self, key):
-        self.table.__delete__(self.index.locate(key, self.table.key)[0])
+        rid = self.index.locate(key, self.table.key)[0] 
+        self.table.__delete__(rid)
         self.index.drop_index(key)
-        return True, self.table
+        return True, self.table, rid
 
     # Insert a record with specified columns
     # Return True upon succesful insertion
@@ -48,7 +49,7 @@ class Query:
         self.table.base_RID += 1
 
         # Insert is not being tested so might not need this statement
-        return True, self.table
+        return True, self.table, base_rid
 
     # Read a record with specified key
     # Returns a list of Record objects upon success
