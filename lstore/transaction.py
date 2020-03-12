@@ -39,8 +39,8 @@ class Transaction:
         return self.commit(table)
 
     def abort(self, table):
-        lock = RLock()
         #TODO: do roll-back and any other necessary operations
+        lock = threading.RLock()
         for query in reversed(self.uncommittedQueries):
             fn_name = query[0].__name__
             if fn_name == 'update' or fn_name == 'increment':
@@ -57,6 +57,7 @@ class Transaction:
 
     def commit(self, table):
         # TODO: commit to database
+        print("num locks in the write lock manager " + str(len(table.write_lock_manager)))
         while len(self.uncommittedQueries) != 0:
             query, key, index = self.uncommittedQueries.pop()
         table.release_locks()

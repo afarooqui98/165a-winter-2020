@@ -91,7 +91,10 @@ class Query:
         lock = threading.RLock()
         timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         indirection_index = 0
+
+        lock.acquire()
         rid = self.table.tail_RID
+        lock.release()
 
         old_columns = self.select(key, self.table.key, [1] * self.table.num_columns)[0][0].columns #get every column and compare to the new one: cumulative update
         new_columns = list(columns)
@@ -108,9 +111,7 @@ class Query:
 
         compared_cols = compare_cols(old_columns, new_columns)
         columns = [indirection_index, rid, timestamp, old_rid] + compared_cols
-        lock.acquire()
         self.table.__update__(columns, old_rid) #add record to tail pages
-        lock.release()
 
         old_indirection = self.table.__return_base_indirection__(old_rid) #base record, do not update index only insert
 
