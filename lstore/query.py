@@ -94,6 +94,7 @@ class Query:
 
         lock.acquire()
         rid = self.table.tail_RID
+        self.table.tail_RID -= 1
         lock.release()
 
         old_columns = self.select(key, self.table.key, [1] * self.table.num_columns)[0][0].columns #get every column and compare to the new one: cumulative update
@@ -105,7 +106,6 @@ class Query:
         lock.acquire()
         if self.table.acquire_write(rid) == False or self.table.acquire_write(old_rid) == False:
             lock.release()
-            print("Failed write lock on thread " +  str(threading.get_ident()))
             return False, self.table, old_rid #return false to the transaction class if rid not found or abort
         lock.release()
 
@@ -118,16 +118,7 @@ class Query:
         lock.acquire()
         self.table.__update_indirection__(rid, old_indirection) #tail record gets base record's indirection index
         self.table.__update_indirection__(old_rid, rid) #base record's indirection column gets latest update RID
-        lock.release()
-
-        print(key)
         self.index.update_index(old_rid, compared_cols)
-        print(key)
-
-        print("size of index is : " + str(len(self.index.index_dict[0])))
-
-        lock.acquire()
-        self.table.tail_RID -= 1
         lock.release()
 
         return True, self.table, old_rid

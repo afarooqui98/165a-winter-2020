@@ -25,11 +25,8 @@ class Transaction:
 
     # If you choose to implement this differently this method must still return True if transaction commits or False on abort
     def run(self):
-        print("in run function")
         for query, args in self.queries:
-            print("query " + str(query.__name__) + " about to run")
             result, table, rid = query(*args)
-            print("query " + str(query.__name__) + " finished")
             self.uncommittedQueries.append((query, rid, table))
             if result == False: # If the query has failed the transaction should abort
                 print("aborted " + str(threading.get_ident()))
@@ -45,7 +42,6 @@ class Transaction:
             fn_name = query[0].__name__
             if fn_name == 'update' or fn_name == 'increment':
                 lock.acquire()
-                print("found an update")
                 table = query[2]
                 rid = query[1]
                 table.__undo_update__(rid)
@@ -57,7 +53,6 @@ class Transaction:
 
     def commit(self, table):
         # TODO: commit to database
-        print("num locks in the write lock manager " + str(len(table.write_lock_manager)))
         while len(self.uncommittedQueries) != 0:
             query, key, index = self.uncommittedQueries.pop()
         table.release_locks()

@@ -14,6 +14,7 @@ INDIRECTION_COLUMN = 0
 RID_COLUMN = 1
 TIMESTAMP_COLUMN = 2
 BASE_RID_COLUMN = 3
+merge_thread = -1
 
 #only return if there is a page directory file specified, only happens after the db has been closed
 def read_page_directory(name):
@@ -315,24 +316,30 @@ class Table:
         return tail_offset, counter
 
     def __update__(self, columns, base_rid):
+        lock = threading.RLock()
         base_offset, _ = self.page_directory[base_rid]
         current_tail = None
         previous_offset, num_traversed = self.__traverse_tail__(base_offset)
         page_offset = previous_offset
 
         if previous_offset == base_offset: #if there is no tail page for the base page
+            lock.acquire()
             self.__add_physical_tail_range__(previous_offset)
             page_offset = self.tail_offset_counter
+            lock.release()
 
         current_tail = self.buffer.fetch_range(self.name, page_offset)[0]
         self.buffer.unpin_range(self.name, page_offset)  #just needed to read this once, unpin right after
         if not current_tail.has_capacity(): #if the latest tail page is full
+            lock.acquire()
             self.__add_physical_tail_range__(previous_offset)
             page_offset = self.tail_offset_counter #add the new range and update the tail offsets accordingly
+            lock.release()
 
             self.buffer.unpin_range(self.name, base_offset)
 
             if (num_traversed >= lstore.config.TailMergeLimit) and (self.buffer.fetch_range(self.name, base_offset)[0].has_capacity() == False): # maybe should be >=, check to see if the base page is full
+                print("merge")
                 self.buffer.unpin_range(self.name, base_offset)
                 self.merge_queue.put(base_offset) #add page offset to the queue
                 if len(threading.enumerate()) == 1: #TODO: check the name of the current thread, needs to make sure that merge isn't in the pool
