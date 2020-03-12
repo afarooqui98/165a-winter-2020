@@ -45,10 +45,7 @@ class Query:
         self.table.__insert__(columns) #table insert
         self.index.add_index(rid, columns[lstore.config.Offset:])
 
-        lock = threading.Lock() #lock the RID increment to prevent race conditions
-        lock.acquire()
         self.table.base_RID += 1
-        lock.release()
 
         # Insert is not being tested so might not need this statement
         return True, self.table
@@ -58,31 +55,40 @@ class Query:
     # Returns False if record locked by TPL
     # Assume that select will never be called on a key that doesn't exist
     def select(self, key, column, query_columns):
+        lock = threading.RLock()
         entries = self.index.locate(key, column)
         rids = []
+        lock.acquire()
         for rid in entries:
             #2PL: acquire shared locks
             if len(entries) == 0:
                 print("select returned false because it couldn't locate the key value")
+                lock.release()
                 return False, self.table, rid #return false to the transaction class if rid not found or abort because of locks
                 # T F - thread has write lock, # F T - write lock is zero so can get read lock, T T - write lock held by someon else
             if self.table.acquire_read(rid) == False:
                 print("select returned false because of locking error: tid is " + str(threading.get_ident()) + "outstanding_write rid is" + str(rid))
+                lock.release()
                 return False, self.table, rid
             else:
-                print("read has been acquired")
+                pass
+                #print("read has been acquired")
 
             rids.append(rid)
+        lock.release()
 
         result = []
         for i in range(len(rids)):
+            lock.acquire()
             result.append(self.table.__read__(rids[i], query_columns))
+            lock.release()
         return result, self.table, None #TODO: inspect this later, might be a faulty way of returning the last value
 
     # Update a record with specified key and columns
     # Returns True if update is succesful
     # Returns False if no records exist with given key or if the target record cannot be accessed due to 2PL locking
     def update(self, key, *columns):
+        lock = threading.RLock()
         timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         indirection_index = 0
         rid = self.table.tail_RID
@@ -93,26 +99,32 @@ class Query:
         old_rid = self.index.locate(key, self.table.key)[0] #get the IndexEntry of the old key val
 
         #2PL: acquire exlcusive locks
+        lock.acquire()
         if self.table.acquire_write(rid) == False or self.table.acquire_write(old_rid) == False:
+            lock.release()
             print("Failed write lock on thread " +  str(threading.get_ident()))
             return False, self.table, old_rid #return false to the transaction class if rid not found or abort
+        lock.release()
 
         compared_cols = compare_cols(old_columns, new_columns)
         columns = [indirection_index, rid, timestamp, old_rid] + compared_cols
+        lock.acquire()
         self.table.__update__(columns, old_rid) #add record to tail pages
+        lock.release()
 
         old_indirection = self.table.__return_base_indirection__(old_rid) #base record, do not update index only insert
 
+        lock.acquire()
         self.table.__update_indirection__(rid, old_indirection) #tail record gets base record's indirection index
         self.table.__update_indirection__(old_rid, rid) #base record's indirection column gets latest update RID
+        lock.release()
+
         print(key)
         self.index.update_index(old_rid, compared_cols)
         print(key)
 
         print("size of index is : " + str(len(self.index.index_dict[0])))
 
-
-        lock = threading.Lock() #lock the RID decrement to prevent race conditions
         lock.acquire()
         self.table.tail_RID -= 1
         lock.release()

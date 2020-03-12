@@ -79,50 +79,48 @@ class Table:
         self.tail_offset_counter = 0
 
     def acquire_read(self, rid):
-        lock = threading.Lock() #keep this function thread safe
-        lock.acquire()
         if rid in self.write_lock_manager: 
             if threading.get_ident() == self.write_lock_manager[rid]:
                 if self.read_lock_manager[rid] == None:
                     print("acquiring first new read lock on rid " + str(rid))
                     self.read_lock_manager[rid] = [threading.get_ident()]
-                elif rid not in self.read_lock_manager[rid]: #only append if not in read lock list for record
+                elif threading.get_ident() not in self.read_lock_manager[rid]: #only append if not in read lock list for record
+                    print("appending read lock because not in list")
                     self.read_lock_manager[rid].append(threading.get_ident())
                 else:
                     print("read lock already exists")
-                    lock.release()
                     return True
             else:
                 print("acquiring read lock on value with a non-native exclusive lock")
-                lock.release()
                 return False #rid is in the outstanding writes, being used by another thread
+        elif rid in self.read_lock_manager:
+            if threading.get_ident() in self.read_lock_manager[rid]:
+                print("read lock already exists")
+                return True
         else:
+            print("New read lock on thread " + str(threading.get_ident()) + " for rid " + str(rid))
             self.read_lock_manager[rid] = [threading.get_ident()] #no write lock on record, can read
-
-        lock.release()
-        return True
+            return True
 
     def acquire_write(self, rid):
-        lock = threading.Lock() #keep this function thread safe
-        lock.acquire()
+        for thread in threading.enumerate():
+            if rid in self.read_lock_manager: #key exists in read lock manager
+                if thread.ident in self.read_lock_manager[rid] and thread.ident != threading.get_ident(): #check if outstanding read exists
+                    print("outstanding read exists on this record from a different txn")
+                    return False
+
         if rid in self.write_lock_manager:
             print("rid " + str(rid) + " exists in the lock manager on thread " + str(threading.get_ident()))
             if threading.get_ident() == self.write_lock_manager[rid]:
-                lock.release()
                 return True
             else:
-                lock.release()
                 return False
         else:
             print("no write lock for rid " + str(rid) + " in the write lock manager, creating new in thread " + str(threading.get_ident()))
             self.write_lock_manager[rid] = threading.get_ident() #no current write locks on record
-            lock.release()
             return True
 
     def release_locks(self):
-        thread_lock = threading.Lock() #keep this function thread safe
-        thread_lock.acquire()
-
         write_locks_to_delete = []
         read_locks_to_delete = []
         for rid, locks in self.read_lock_manager.items():
@@ -137,8 +135,6 @@ class Table:
             self.read_lock_manager[rid].remove(threading.get_ident())
         for rid in write_locks_to_delete:
             del self.write_lock_manager[rid]
-
-        thread_lock.release()
 
     #TODO: implement TPS calculation
     def __merge__(self, base_range_copy, tail_range_offsets):
@@ -213,30 +209,21 @@ class Table:
         self.buffer.page_map[self.buffer.frame_map[base_offset]] = consolidated_range #update buffer_pool
 
     def __add_physical_base_range__(self):
-        lock = threading.Lock() #keep this function thread safe
-        lock.acquire()
         if self.base_offset_counter < self.tail_offset_counter:
             self.base_offset_counter = self.tail_offset_counter + lstore.config.FilePageLength
         else:
             self.base_offset_counter += lstore.config.FilePageLength #increase offset after adding a range
-        lock.release()
         self.buffer.add_range(self.name, self.base_offset_counter)
 
     def __add_physical_tail_range__(self, previous_offset_counter):
-        lock = threading.Lock() #keep this function thread safe
-        lock.acquire()
         if self.tail_offset_counter < self.base_offset_counter:
             self.tail_offset_counter = self.base_offset_counter + lstore.config.FilePageLength
         else:
             self.tail_offset_counter += lstore.config.FilePageLength #increase offset after adding a range
-        lock.release()
         self.buffer.add_range(self.name, self.tail_offset_counter)
 
         for column_index in range(lstore.config.Offset + self.num_columns): #update all the offsets
-            lock = threading.Lock() #lock the update offset for disk
-            lock.acquire()
             self.disk.update_offset(self.name, column_index, previous_offset_counter, self.tail_offset_counter) #update offset value i
-            lock.release()
 
 
     def __read__(self, RID, query_columns):
@@ -329,10 +316,10 @@ class Table:
 
     def __update__(self, columns, base_rid):
         base_offset, _ = self.page_directory[base_rid]
-
         current_tail = None
         previous_offset, num_traversed = self.__traverse_tail__(base_offset)
         page_offset = previous_offset
+
         if previous_offset == base_offset: #if there is no tail page for the base page
             self.__add_physical_tail_range__(previous_offset)
             page_offset = self.tail_offset_counter

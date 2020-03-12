@@ -29,6 +29,7 @@ class Transaction:
         for query, args in self.queries:
             print("query " + str(query.__name__) + " about to run")
             result, table, rid = query(*args)
+            print("query " + str(query.__name__) + " finished")
             self.uncommittedQueries.append((query, rid, table))
             if result == False: # If the query has failed the transaction should abort
                 print("aborted " + str(threading.get_ident()))
@@ -38,17 +39,19 @@ class Transaction:
         return self.commit(table)
 
     def abort(self, table):
+        lock = RLock()
         #TODO: do roll-back and any other necessary operations
         for query in reversed(self.uncommittedQueries):
             fn_name = query[0].__name__
             if fn_name == 'update' or fn_name == 'increment':
+                lock.acquire()
                 print("found an update")
                 table = query[2]
                 rid = query[1]
                 table.__undo_update__(rid)
+                lock.release()
             else:
                 print("didn't find an update, val is " + fn_name)
-
         table.release_locks()
         return False
 

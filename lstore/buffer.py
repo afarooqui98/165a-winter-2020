@@ -27,8 +27,6 @@ class Bufferpool():
             self.pin_range(name, page_slot) #pin this page
             return self.page_map[self.frame_map[page_slot]]
         else:
-            lock = threading.Lock() #keep eviction and loading atomic, acquire thread safe lock to ensure this
-            lock.acquire()
             new_range = self.get_range(name, page_slot)
             if self.must_evict(): #must evict a page and store a new one from disk
                 frame_num = self.evict(name)
@@ -37,7 +35,6 @@ class Bufferpool():
             else: #there is space in the buffer pool to fit a new set of ranges
                 self.frame_map[page_slot] = len(self.page_map)
                 self.page_map[self.frame_map[page_slot]] = new_range
-            lock.release()
 
         self.accesses[self.frame_map[page_slot]] += 1 #increase num accesses for this frame
         self.pin_range(name, page_slot) #pin this page
@@ -79,8 +76,6 @@ class Bufferpool():
             new_page = Page()
             new_range.append(new_page)
 
-        lock = threading.Lock() #loading to the buffer pool should be atomic
-        lock.acquire()
         if self.must_evict(): #need to evict a page to add the new range from memory
             frame_num = self.evict(name)
             self.frame_map[page_slot] = frame_num
@@ -90,7 +85,6 @@ class Bufferpool():
             self.frame_map[page_slot] = len(self.page_map)
             self.page_map[self.frame_map[page_slot]] = new_range
             self.accesses[self.frame_map[page_slot]] += 1 #increase num accesses for this frame
-        lock.release()
 
     def evict(self, name):
         count = math.inf
