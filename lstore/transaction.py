@@ -37,29 +37,29 @@ class Transaction:
 
     def abort(self, table):
         #TODO: do roll-back and any other necessary operations
-        lock = threading.RLock()
+        thread_lock = threading.RLock()
         for query in reversed(self.uncommittedQueries):
             fn_name = query[0].__name__
             if fn_name == 'update' or fn_name == 'increment':
-                lock.acquire()
+                thread_lock.acquire()
                 table = query[2]
                 rid = query[1]
                 table.__undo_update__(rid)
-                lock.release()
+                thread_lock.release()
             else:
                 pass
                 # print("didn't find an update, val is " + fn_name)
-        lock.acquire()
+        thread_lock.acquire()
         table.release_locks()
-        lock.release()
+        thread_lock.release()
         return False
 
     def commit(self, table):
-        lock = threading.RLock()
+        thread_lock = threading.RLock()
         # TODO: commit to database
         while len(self.uncommittedQueries) != 0:
             query, key, index = self.uncommittedQueries.pop()
-        lock.acquire()
+        thread_lock.acquire()
         table.release_locks()
-        lock.release()
+        thread_lock.release()
         return True

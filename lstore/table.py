@@ -121,20 +121,30 @@ class Table:
             return True
 
     def release_locks(self):
+        thread_lock = threading.RLock()
         write_locks_to_delete = []
         read_locks_to_delete = []
+
+        thread_lock.acquire()
         for rid, locks in self.read_lock_manager.items():
             if threading.get_ident() in locks:
                 read_locks_to_delete.append(rid)
+        thread_lock.release()
 
+        thread_lock.acquire()
         for rid, lock in self.write_lock_manager.items():
             if threading.get_ident() == lock:
                 write_locks_to_delete.append(rid)
+        thread_lock.release()
 
         for rid in read_locks_to_delete:
+            thread_lock.acquire()
             self.read_lock_manager[rid].remove(threading.get_ident())
+            thread_lock.release()
         for rid in write_locks_to_delete:
+            thread_lock.acquire()
             del self.write_lock_manager[rid]
+            thread_lock.release()
 
     #TODO: implement TPS calculation
     def __merge__(self, base_range_copy, tail_range_offsets):
@@ -353,50 +363,50 @@ class Table:
         return tail_offset, counter
 
     def __update__(self, columns, base_rid):
-        lock = threading.RLock()
+        thread_lock = threading.RLock()
         base_offset, _ = self.page_directory[base_rid]
         current_tail = None
         previous_offset, num_traversed = self.__traverse_tail__(base_offset)
         page_offset = previous_offset
 
         if previous_offset == base_offset: #if there is no tail page for the base page
-            lock.acquire()
+            thread_lock.acquire()
             self.__add_physical_tail_range__(previous_offset)
             page_offset = self.tail_offset_counter
-            lock.release()
+            thread_lock.release()
 
-        lock.acquire()
+        thread_lock.acquire()
         current_tail = self.buffer.fetch_range(self.name, page_offset)[0]
-        lock.release()
+        thread_lock.release()
 
         self.buffer.unpin_range(self.name, page_offset)  #just needed to read this once, unpin right after
         if not current_tail.has_capacity(): #if the latest tail page is full
-            lock.acquire()
+            thread_lock.acquire()
             self.__add_physical_tail_range__(previous_offset)
             page_offset = self.tail_offset_counter #add the new range and update the tail offsets accordingly
-            lock.release()
+            thread_lock.release()
 
             self.buffer.unpin_range(self.name, base_offset)
 
-            lock.acquire()
+            thread_lock.acquire()
             base_range = self.buffer.fetch_range(self.name, base_offset)
-            lock.release()
+            thread_lock.release()
 
             if (num_traversed >= lstore.config.TailMergeLimit) and (base_range[0].has_capacity() == False): # maybe should be >=, check to see if the base page is full
                 
-                lock.acquire()
+                thread_lock.acquire()
                 print("merge start")
                 merge_thread = (threading.get_ident() if lstore.config.merge_thread == -1 else lstore.config.merge_thread)
-                lock.release()
+                thread_lock.release()
                 self.buffer.unpin_range(self.name, base_offset)
                 self.merge_queue.put(base_offset) #add page offset to the queue
                 if len(threading.enumerate()) == 1: #TODO: check the name of the current thread, needs to make sure that merge isn't in the pool
                     thread = threading.Thread(name = "merge_thread", target = self.__prepare_merge__, args = [self.merge_queue.get()]) # needs to be called in a threaded way, pass through the deep copy of the base range
                     thread.start()
 
-        lock.acquire()
+        thread_lock.acquire()
         current_tail_range = self.buffer.fetch_range(self.name, page_offset)
-        lock.release()
+        thread_lock.release()
 
         for column_index in range(self.num_columns + lstore.config.Offset):
             current_tail_page = current_tail_range[column_index]
