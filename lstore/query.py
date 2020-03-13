@@ -57,7 +57,9 @@ class Query:
     # Assume that select will never be called on a key that doesn't exist
     def select(self, key, column, query_columns):
         thread_lock = threading.RLock()
+        thread_lock.acquire()
         entries = self.index.locate(key, column)
+        thread_lock.release()
         rids = []
         thread_lock.acquire()
         for rid in entries:
