@@ -14,7 +14,6 @@ INDIRECTION_COLUMN = 0
 RID_COLUMN = 1
 TIMESTAMP_COLUMN = 2
 BASE_RID_COLUMN = 3
-merge_thread = -1
 
 #only return if there is a page directory file specified, only happens after the db has been closed
 def read_page_directory(name):
@@ -207,21 +206,29 @@ class Table:
         self.buffer.page_map[self.buffer.frame_map[base_offset]] = consolidated_range #update buffer_pool
 
     def __add_physical_base_range__(self): #calling function is thread safe
+        lock = threading.RLock()
+        lock.acquire()
         if self.base_offset_counter < self.tail_offset_counter:
             self.base_offset_counter = self.tail_offset_counter + lstore.config.FilePageLength
         else:
             self.base_offset_counter += lstore.config.FilePageLength #increase offset after adding a range
         self.buffer.add_range(self.name, self.base_offset_counter)
+        lock.release()
 
     def __add_physical_tail_range__(self, previous_offset_counter): #calling function is thread safe
+        lock = threading.RLock()
+        lock.acquire()
         if self.tail_offset_counter < self.base_offset_counter:
             self.tail_offset_counter = self.base_offset_counter + lstore.config.FilePageLength
         else:
             self.tail_offset_counter += lstore.config.FilePageLength #increase offset after adding a range
         self.buffer.add_range(self.name, self.tail_offset_counter)
+        lock.release()
 
         for column_index in range(lstore.config.Offset + self.num_columns): #update all the offsets
+            lock.acquire()
             self.disk.update_offset(self.name, column_index, previous_offset_counter, self.tail_offset_counter) #update offset value i
+            lock.release()
 
 
     def __read__(self, RID, query_columns):
@@ -376,9 +383,10 @@ class Table:
             lock.release()
 
             if (num_traversed >= lstore.config.TailMergeLimit) and (base_range[0].has_capacity() == False): # maybe should be >=, check to see if the base page is full
-                print("ready to merge")
+                
                 lock.acquire()
-                merge_thread = (threading.get_ident() if merge_thread == -1 else merge_thread)
+                print("merge start")
+                merge_thread = (threading.get_ident() if lstore.config.merge_thread == -1 else lstore.config.merge_thread)
                 lock.release()
                 self.buffer.unpin_range(self.name, base_offset)
                 self.merge_queue.put(base_offset) #add page offset to the queue

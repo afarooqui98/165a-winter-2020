@@ -6,7 +6,8 @@ StartBaseRID = 1
 StartTailRID = ((2 ** 63) - 1)
 Offset = 4
 #Increment buffersize from 20-50, by 5 increments.  Default 20
-buffersize = 20
+buffersize = 100
 DBName = ""
 #Increment buffersize from 1-10, by 1 increments. Default 3
 TailMergeLimit = 3
+merge_thread = -1

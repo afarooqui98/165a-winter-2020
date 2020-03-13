@@ -49,12 +49,17 @@ class Transaction:
             else:
                 pass
                 # print("didn't find an update, val is " + fn_name)
+        lock.acquire()
         table.release_locks()
+        lock.release()
         return False
 
     def commit(self, table):
+        lock = threading.RLock()
         # TODO: commit to database
         while len(self.uncommittedQueries) != 0:
             query, key, index = self.uncommittedQueries.pop()
+        lock.acquire()
         table.release_locks()
+        lock.release()
         return True

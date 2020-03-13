@@ -16,7 +16,7 @@ num_threads = 8
 seed(8739878934)
 
 # Generate random records
-for i in range(0, 1000):
+for i in range(0, 10000):
     key = 92106429 + i
     keys.append(key)
     records[key] = [key, 0, 0, 0, 0]
@@ -31,8 +31,8 @@ for i in range(num_threads):
 
 # generates 10k random transactions
 # each transaction will increment the first column of a record 5 times
-for i in range(100):
-    k = randint(0, 200 - 1)
+for i in range(1000):
+    k = randint(0, 2000 - 1)
     transaction = Transaction()
     for j in range(5):
         key = keys[k * 5 + j]
