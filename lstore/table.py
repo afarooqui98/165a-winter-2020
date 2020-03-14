@@ -69,6 +69,8 @@ class Table:
         self.page_directory = {}
         self.read_lock_manager = {}
         self.write_lock_manager = {}
+        self.read_lock_manager_latch = False
+        self.write_lock_manager_latch = False
         self.merge_queue = queue.Queue()
 
         self.base_RID = lstore.config.StartBaseRID
@@ -79,6 +81,15 @@ class Table:
         self.tail_offset_counter = 0
 
     def acquire_read(self, rid):
+        #print("acquire_read started")
+        # thread_lock = threading.RLock()
+
+        # thread_lock.acquire()
+        while self.read_lock_manager_latch == True or self.write_lock_manager_latch == True:
+            pass
+
+        self.write_lock_manager_latch = True
+        self.read_lock_manager_latch = True
         if rid in self.write_lock_manager: 
             if threading.get_ident() == self.write_lock_manager[rid]:
                 if self.read_lock_manager[rid] == None:
@@ -89,62 +100,122 @@ class Table:
                     self.read_lock_manager[rid].append(threading.get_ident())
                 else:
                     # print("read lock already exists")
+                    self.write_lock_manager_latch = False
+                    self.read_lock_manager_latch = False
+                    # thread_lock.release()
                     return True
             else:
-                # print("acquiring read lock on value with a non-native exclusive lock")
+                #print("acquiring read lock on value with a non-native exclusive lock")
+                self.write_lock_manager_latch = False
+                self.read_lock_manager_latch = False
+                # thread_lock.release()
                 return False #rid is in the outstanding writes, being used by another thread
         elif rid in self.read_lock_manager:
             if threading.get_ident() in self.read_lock_manager[rid]:
                 # print("read lock already exists")
+                self.write_lock_manager_latch = False
+                self.read_lock_manager_latch = False
+                # thread_lock.release()
                 return True
         else:
             # print("New read lock on thread " + str(threading.get_ident()) + " for rid " + str(rid))
             self.read_lock_manager[rid] = [threading.get_ident()] #no write lock on record, can read
+            self.write_lock_manager_latch = False
+            self.read_lock_manager_latch = False
+            # thread_lock.release()
             return True
 
+        self.write_lock_manager_latch = False
+        self.read_lock_manager_latch = False
+
     def acquire_write(self, rid):
+        #print("acquire_write started")
+        #thread_lock = threading.RLock()
+
+        # thread_lock.acquire()
+        while self.read_lock_manager_latch == True:
+            pass
+
+        self.read_lock_manager_latch = True
         for thread in threading.enumerate():
             if rid in self.read_lock_manager: #key exists in read lock manager
                 if thread.ident in self.read_lock_manager[rid] and thread.ident != threading.get_ident(): #check if outstanding read exists
                     # print("outstanding read exists on this record from a different txn")
+                    # thread_lock.release()
+                    self.read_lock_manager_latch = False
                     return False
+        self.read_lock_manager_latch = False
+        # thread_lock.release()
 
+        # thread_lock.acquire()
+        while self.write_lock_manager_latch == True:
+            pass
+
+        self.write_lock_manager_latch = True
         if rid in self.write_lock_manager:
             # print("rid " + str(rid) + " exists in the lock manager on thread " + str(threading.get_ident()))
             if threading.get_ident() == self.write_lock_manager[rid]:
+                self.write_lock_manager_latch = False
+                # thread_lock.release()
                 return True
             else:
+                self.write_lock_manager_latch = False
+                # thread_lock.release()
                 return False
         else:
             # print("no write lock for rid " + str(rid) + " in the write lock manager, creating new in thread " + str(threading.get_ident()))
             self.write_lock_manager[rid] = threading.get_ident() #no current write locks on record
+            self.write_lock_manager_latch = False
+            # thread_lock.release()
             return True
 
     def release_locks(self):
-        thread_lock = threading.RLock()
+        #print("release_locks started")
+        # thread_lock = threading.RLock()
         write_locks_to_delete = []
         read_locks_to_delete = []
 
-        thread_lock.acquire()
-        for rid, locks in self.read_lock_manager.items():
-            if threading.get_ident() in locks:
-                read_locks_to_delete.append(rid)
-        thread_lock.release()
+        # thread_lock.acquire()
+        while self.read_lock_manager_latch == True:
+            print("release_lock read latch")
 
-        thread_lock.acquire()
-        for rid, lock in self.write_lock_manager.items():
-            if threading.get_ident() == lock:
+        self.read_lock_manager_latch = True
+        for rid in list(self.read_lock_manager.keys()):
+            if threading.get_ident() in self.read_lock_manager[rid]:
+                read_locks_to_delete.append(rid)
+        self.read_lock_manager_latch = False
+        # thread_lock.release()
+
+        # thread_lock.acquire()
+        while self.write_lock_manager_latch == True:
+            print("release_lock write latch")
+
+        self.write_lock_manager_latch = True
+        for rid in list(self.write_lock_manager.keys()):
+            if threading.get_ident() == self.write_lock_manager[rid]:
                 write_locks_to_delete.append(rid)
-        thread_lock.release()
+        self.write_lock_manager_latch = False
+        # thread_lock.release()
+
+        while self.read_lock_manager_latch == True or self.write_lock_manager_latch == True:
+            print("Release lock read and write latch")
+            pass
+
+        self.read_lock_manager_latch = True
+        self.write_lock_manager_latch = True
 
         for rid in read_locks_to_delete:
-            thread_lock.acquire()
+            # thread_lock.acquire()
             self.read_lock_manager[rid].remove(threading.get_ident())
-            thread_lock.release()
+            # thread_lock.release()
         for rid in write_locks_to_delete:
-            thread_lock.acquire()
+            # thread_lock.acquire()
             del self.write_lock_manager[rid]
-            thread_lock.release()
+            # thread_lock.release()
+
+        self.read_lock_manager_latch = False
+        self.write_lock_manager_latch = False
+        #print("release_locks finished\n")
 
     #TODO: implement TPS calculation
     def __merge__(self, base_range_copy, tail_range_offsets):

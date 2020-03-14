@@ -108,7 +108,7 @@ class Query:
         #2PL: acquire exlcusive locks
         thread_lock.acquire()
         if self.table.acquire_write(rid) == False or self.table.acquire_write(old_rid) == False:
-            lock.release()
+            thread_lock.release()
             return False, self.table, old_rid #return false to the transaction class if rid not found or abort
         thread_lock.release()
 
@@ -156,7 +156,7 @@ class Query:
     """
     def increment(self, key, column):
         r, _, _ = self.select(key, self.table.key, [1] * self.table.num_columns)
-        if r[0].rid is not False:
+        if r is not False and r[0].rid is not False:
             updated_columns = [None] * self.table.num_columns
             updated_columns[column] = r[0].columns[column] + 1
             u, table, rid  = self.update(key, *updated_columns)

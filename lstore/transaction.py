@@ -49,6 +49,7 @@ class Transaction:
             else:
                 pass
                 # print("didn't find an update, val is " + fn_name)
+
         thread_lock.acquire()
         table.release_locks()
         thread_lock.release()
@@ -59,6 +60,7 @@ class Transaction:
         # TODO: commit to database
         while len(self.uncommittedQueries) != 0:
             query, key, index = self.uncommittedQueries.pop()
+
         thread_lock.acquire()
         table.release_locks()
         thread_lock.release()
