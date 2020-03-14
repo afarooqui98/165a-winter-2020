@@ -177,7 +177,7 @@ class Table:
 
         # thread_lock.acquire()
         while self.read_lock_manager_latch == True:
-            print("release_lock read latch")
+            pass
 
         self.read_lock_manager_latch = True
         for rid in list(self.read_lock_manager.keys()):
@@ -188,7 +188,7 @@ class Table:
 
         # thread_lock.acquire()
         while self.write_lock_manager_latch == True:
-            print("release_lock write latch")
+            pass
 
         self.write_lock_manager_latch = True
         for rid in list(self.write_lock_manager.keys()):
@@ -198,7 +198,6 @@ class Table:
         # thread_lock.release()
 
         while self.read_lock_manager_latch == True or self.write_lock_manager_latch == True:
-            print("Release lock read and write latch")
             pass
 
         self.read_lock_manager_latch = True
